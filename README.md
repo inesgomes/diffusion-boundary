@@ -1,6 +1,7 @@
 # Stress Testing Classifiers using Diffusion Models
 
 ![License](https://img.shields.io/static/v1?label=license&message=CC-BY-NC-ND-4.0&color=green)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 
 Use diffusion models to generate data points close to the decision boundary of classifiers.
 
@@ -15,4 +16,5 @@ Create .env file with the following information
 CUDA_VISIBLE_DEVICES=0
 FILESDIR=<file directory>
 ENTITY=<wandb entity to track experiments>
+PRE_COMMIT_USE_MAMBA=1
 ```

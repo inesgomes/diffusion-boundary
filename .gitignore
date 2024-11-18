@@ -162,3 +162,5 @@ cython_debug/
 #.idea/
 
 README-INES.md
+
+.isort.cfg

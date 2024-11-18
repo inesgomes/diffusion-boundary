@@ -1,0 +1,43 @@
+name: dfst
+channels:
+  - conda-forge
+dependencies:
+  - _libgcc_mutex=0.1
+  - _openmp_mutex=4.5
+  - bzip2=1.0.8
+  - ca-certificates=2022.9.24
+  - cffi=1.15.1
+  - cfgv=3.3.1
+  - distlib=0.3.6
+  - filelock=3.8.0
+  - identify=2.5.8
+  - ld_impl_linux-64=2.39
+  - libffi=3.4.2
+  - libgcc-ng=12.2.0
+  - libgomp=12.2.0
+  - libnsl=2.0.0
+  - libsqlite=3.40.0
+  - libstdcxx-ng=12.2.0
+  - libuuid=2.32.1
+  - libzlib=1.2.13
+  - ncurses=6.3
+  - nodeenv=1.7.0
+  - openssl=3.0.7
+  - pip=22.3.1
+  - platformdirs=2.5.2
+  - pre-commit=2.20.0
+  - pre_commit=2.20.0
+  - pycparser=2.21
+  - python=3.11.0
+  - python_abi=3.11
+  - pyyaml=6.0
+  - readline=8.1.2
+  - setuptools=65.5.1
+  - tk=8.6.12
+  - toml=0.10.2
+  - tzdata=2022f
+  - ukkonen=1.0.1
+  - virtualenv=20.16.7
+  - wheel=0.38.4
+  - xz=5.2.6
+  - yaml=0.2.5

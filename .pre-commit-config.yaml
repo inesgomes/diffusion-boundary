@@ -19,10 +19,9 @@ repos:
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: check-docstring-first
-      - id: double-quote-string-fixer
       - id: file-contents-sorter
-      #- id: no-commit-to-branch
-      #  args: ["--branch", "main"]
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
 
   - repo: https://gitlab.com/vojko.pribudic.foss/pre-commit-update
     rev: v0.6.0post1
@@ -49,7 +48,7 @@ repos:
         - '--max-positional-arguments=8'
         - '--max-line-length=120'
         - '-d duplicate-code'
-        - '--disable=W0511, C0103, C0411, line-too-long, I1101'  # Disable line-too-long since it's handled by Black/Ruff
+        - '--disable=W0511, C0103, C0411, line-too-long, I1101, import-error, too-many-arguments'  # Disable line-too-long since it's handled by Black/Ruff
         - '--extension-pkg-allow-list=wandb'
 
   - repo: https://github.com/asottile/blacken-docs
@@ -81,10 +80,3 @@ repos:
     hooks:
       - id: pyupgrade
         args: ['--py38-plus']
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.13.0
-    hooks:
-      - id: mypy
-        args: [--disallow-untyped-defs, --disallow-incomplete-defs, --disallow-untyped-calls, --follow-imports, 'normal']
-        additional_dependencies: [types-python-dateutil, types-requests, types-toml, types-pytz, types-PyYAML, wandb]

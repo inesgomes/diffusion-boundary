@@ -17,4 +17,5 @@ CUDA_VISIBLE_DEVICES=0
 FILESDIR=<file directory>
 ENTITY=<wandb entity to track experiments>
 PRE_COMMIT_USE_MAMBA=1
+HF_HUB_OFFLINE=True
 ```

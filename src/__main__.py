@@ -1,7 +1,47 @@
-# This is the main file for the diffusion-boundary package
+"""
+This is the main file for the diffusion-boundary package
+"""
 
-def main():
-    print("Hello World!")
+import torch
+
+from src.classifier import get_classifier
+from src.diffusion import get_custom_pipe
+
+
+def generate_sample(pipe, classifier, preprocessing, num_inference_steps, alpha, device):
+    """_summary_"""
+    generator = torch.Generator(device=device).manual_seed(42)
+    out = pipe(
+        generator=generator,
+        classifier=classifier,
+        preprocessing=preprocessing,
+        num_inference_steps=num_inference_steps,
+        alpha=alpha,
+    )
+
+    return out[0]
+
+
+def main(num_inference_steps, alpha, device):
+    """
+    generate a sample image
+    """
+    # get classifier and pipe
+    pipe = get_custom_pipe(device)
+    classifier, preprocessing = get_classifier(device)
+
+    # generate sample and save
+    image = generate_sample(pipe, classifier, preprocessing, num_inference_steps, alpha, device)
+    image.save("samples/tst.png")
+
 
 if __name__ == "__main__":
-    main()
+    # TODO: integrate with wandb
+
+    # TODO: receive via arg
+    # seed
+    DEVICE = "cuda:0"
+    NUM_INFERENCE_STEPS = 5
+    ALPHA = 0
+
+    main(NUM_INFERENCE_STEPS, ALPHA, DEVICE)

@@ -26,8 +26,6 @@ class NoGuidancePipeline(DiffusionPipeline):
     def __call__(
         self,
         generator,
-        classifier,
-        preprocessing,
         num_inference_steps: int,
         batch_size: int = 1,
         arguments=None,
@@ -36,8 +34,6 @@ class NoGuidancePipeline(DiffusionPipeline):
 
         Args:
             generator (_type_): _description_ Random generator for noise
-            classifier (_type_): _description_ Classifier to guide the process
-            preprocessing (_type_): _description_ Preprocessing image pipeline
             num_inference_steps (int): _description_ Number of inference steps in the scheduler
             batch_size (int, optional): _description_. Defaults to 1. Number of samples to generate
 

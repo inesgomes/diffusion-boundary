@@ -11,7 +11,7 @@ import yaml
 from dotenv import load_dotenv
 
 from src.classifier import get_vit_classifier
-from src.diffusion import get_custom_pipe
+from src.diffusion import get_custom_pipe, get_pipe
 
 
 def generate_run_id():
@@ -21,18 +21,12 @@ def generate_run_id():
     return f"{current_time.strftime('%Y-%m-%d')}T{seconds_since_midnight}"
 
 
-def generate_sample(pipe, classifier, preprocessing, diffusion_settings, device):
+def generate_sample(pipe, num_inference_steps, batch_size, device, **kwargs):
     """Generate a sample image using the pipeline specified."""
     generator = torch.Generator(device=device).manual_seed(42)
-    # TODO this must change to the correct pipeline
-    out = pipe(
-        generator=generator,
-        classifier=classifier,
-        preprocessing=preprocessing,
-        num_inference_steps=diffusion_settings["num-inference-steps"],
-        batch_size=diffusion_settings["batch-size"],
-        arguments=diffusion_settings["arguments"],
-    )
+
+    out = pipe(generator=generator, num_inference_steps=num_inference_steps, batch_size=batch_size, **kwargs)
+    print(out)
     return out[0]
 
 
@@ -55,18 +49,36 @@ def main(configuration):
         },
     )
 
-    # get classifier and pipe
-    pipe = get_custom_pipe(
-        diffusion_settings["type"], diffusion_settings["model"], diffusion_settings["pipeline"], device
-    )
-    classifier, preprocessing = get_vit_classifier(configuration["classifier"]["model"], device)
+    # TODO: i dont like this, maybe I need to refactor the code
 
-    # generate sample and save
-    image = generate_sample(pipe, classifier, preprocessing, diffusion_settings, device)
+    args = {}
+    if "pipeline" in diffusion_settings:
+        # get custom pipeline
+        pipe = get_custom_pipe(
+            diffusion_settings["type"], diffusion_settings["model"], diffusion_settings["pipeline"], device
+        )
+        if diffusion_settings["pipeline"] == "guidance":
+            # TODO: check which classifier
+            # get classifier
+            classifier, preprocessing = get_vit_classifier(configuration["classifier"]["model"], device)
+            args = {"classifier": classifier, "preprocessing": preprocessing, "alpha": diffusion_settings["alpha"]}
+    else:
+        # get default pipeline
+        pipe = get_pipe(diffusion_settings["type"], diffusion_settings["model"], device)
+
+    # create generator
+    generator = torch.Generator(device=device).manual_seed(42)
+
+    out = pipe(
+        generator=generator,
+        num_inference_steps=diffusion_settings["num-inference-steps"],
+        batch_size=diffusion_settings["batch-size"],
+        **args,
+    )
+    image = out[0]
 
     # Log the image
     wandb.log({"sample_image": wandb.Image(image)})
-    # image.save("samples/tst.png")
 
     wandb.finish()
 
@@ -80,10 +92,10 @@ if __name__ == "__main__":
     # get arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", dest="config_path", required=True, help="Configuration file")
-    args = parser.parse_args()
+    my_args = parser.parse_args()
 
     try:
-        with open(args.config_path, encoding="utf-8") as file:
+        with open(my_args.config_path, encoding="utf-8") as file:
             # load configuration file
             config = yaml.safe_load(file)
             # check if arguments exist
@@ -91,5 +103,5 @@ if __name__ == "__main__":
                 config["diffusion"]["arguments"] = None
             main(config)
     except FileNotFoundError:
-        print(f"Config file {args.config_path} not found.")
+        print(f"Config file {my_args.config_path} not found.")
         sys.exit(1)

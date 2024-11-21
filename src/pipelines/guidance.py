@@ -29,28 +29,26 @@ class ClassifierGuidance(DiffusionPipeline):
     def __call__(
         self,
         generator,
-        classifier,
-        preprocessing,
         num_inference_steps: int,
         batch_size: int = 1,
-        arguments=None,
+        **kwargs,
     ):
         """_summary_ Method to guide the diffusion process with a classifier.
 
         Args:
             generator (_type_): _description_ Random generator for noise
-            classifier (_type_): _description_ Classifier to guide the process
-            preprocessing (_type_): _description_ Preprocessing image pipeline
             num_inference_steps (int): _description_ Number of inference steps in the scheduler
-            alpha (float): _description_ Weight for classifier guidance
-            eta (float, optional): _description_. Defaults to 0. Corresponds to η in paper and should be between [0, 1]
             batch_size (int, optional): _description_. Defaults to 1. Number of samples to generate
 
         Returns:
             _type_: _description_
         """
+        classifier = kwargs.get("classifier", None)
+        preprocessing = kwargs.get("preprocessing", None)
+        alpha = kwargs.get("alpha", None)
+
         # TODO: what is eta -> paper from imbalanced data defined eta=0
-        # eta = arguments["eta"]
+        # eta = kwargs.get("eta", None)
 
         # Sample gaussian noise to begin loop
         image = torch.randn(
@@ -69,12 +67,10 @@ class ClassifierGuidance(DiffusionPipeline):
             # 2. classifier prediction
             inputs = preprocessing(images=image, return_tensors="pt")
             outputs = classifier(**inputs)
-            prob = outputs.logits.argmax(dim=1)
-            print(prob)
-            classifier_output = np.abs(np.average(prob) - 0.5)
+            classifier_output = np.abs(np.average(outputs.logits.argmax(dim=1)) - 0.5)
 
             # Adjust noise prediction with classifier guidance
-            adjusted_output = model_output + arguments["alpha"] * classifier_output
+            adjusted_output = model_output + alpha * classifier_output
 
             # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
             # add variance depending on eta (eta is only for LDM)

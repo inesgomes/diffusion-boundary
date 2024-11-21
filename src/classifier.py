@@ -3,9 +3,32 @@
 # from torchvision.models import resnet50, ResNet50_Weights
 import timm
 from torchvision import transforms
+from transformers import ViTFeatureExtractor, ViTForImageClassification
 
 
-def get_classifier(device):
+def get_vit_classifier(device):
+    """_summary_ Get a VIT model for image classification pre-trained with CIFAR10.
+
+    Returns:
+        _type_: _description_ model and feature_extractor
+    """
+    feature_extractor = ViTFeatureExtractor.from_pretrained("nateraw/vit-base-patch16-224-cifar10")
+
+    model = ViTForImageClassification.from_pretrained("nateraw/vit-base-patch16-224-cifar10")
+    model.eval()
+    model.to(device)
+
+    # USAGE:
+    # inputs = feature_extractor(images=image, return_tensors="pt")
+    # outputs = model(**inputs)
+    # preds = outputs.logits.argmax(dim=1)
+    # classes = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+    # classes[preds[0]]
+
+    return model, feature_extractor
+
+
+def get_vit_classifierget_classifier(device):
     """Get a pretrained classifer (ResNet50) and prepare the adequaate preprocessing."""
     # Load a pre-trained classifier
     # standard pre-trained model

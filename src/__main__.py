@@ -9,7 +9,7 @@ import wandb
 import yaml
 from dotenv import load_dotenv
 
-from src.classifier import get_classifier
+from src.classifier import get_vit_classifier
 from src.diffusion import get_custom_pipe
 
 
@@ -20,9 +20,10 @@ def generate_sample(pipe, classifier, preprocessing, diffusion_settings, device)
         generator=generator,
         classifier=classifier,
         preprocessing=preprocessing,
-        num_inference_steps=diffusion_settings["num_inference_steps"],
+        num_inference_steps=diffusion_settings["num-inference-steps"],
         alpha=diffusion_settings["alpha"],
         eta=diffusion_settings["eta"],
+        batch_size=diffusion_settings["batch-size"],
     )
 
     return out[0]
@@ -50,7 +51,7 @@ def main(configuration):
 
     # get classifier and pipe
     pipe = get_custom_pipe(device)
-    classifier, preprocessing = get_classifier(device)
+    classifier, preprocessing = get_vit_classifier(device)
 
     # generate sample and save
     image = generate_sample(pipe, classifier, preprocessing, diffusion_settings, device)

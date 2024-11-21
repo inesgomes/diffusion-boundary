@@ -1,20 +1,23 @@
 """
-Module that contatins the code to guide the diffusion process with a classifier
+Module that contatins the code to guide the diffusion process with a classifier.
+
+inspiration: https://huggingface.co/hf-internal-testing/diffusers-dummy-pipeline/blob/main/pipeline.py
 """
 
 import torch
 from diffusers import DiffusionPipeline
 
-# inspiration: https://huggingface.co/hf-internal-testing/diffusers-dummy-pipeline/blob/main/pipeline.py
-
 
 class MyPipeline(DiffusionPipeline):
-    """_summary_
-    Dummy pipeline to test diffusion models with a classifier
-    Args:
-        DiffusionPipeline (_type_): _description_
-    """
+    """Dummy pipeline to test diffusion models with a classifier."""
+
     def __init__(self, unet, scheduler):
+        """_summary_ Constructor for the pipeline.
+
+        Args:
+            unet (_type_): _description_ Unet model for diffusion
+            scheduler (_type_): _description_ Scheduler for diffusion
+        """
         super().__init__()
 
         self.register_modules(unet=unet, scheduler=scheduler)
@@ -30,6 +33,20 @@ class MyPipeline(DiffusionPipeline):
         eta: float = 0,
         batch_size: int = 1,
     ):
+        """_summary_ Method to guide the diffusion process with a classifier.
+
+        Args:
+            generator (_type_): _description_ Random generator for noise
+            classifier (_type_): _description_ Classifier to guide the process
+            preprocessing (_type_): _description_ Preprocessing image pipeline
+            num_inference_steps (int): _description_ Number of inference steps in the scheduler
+            alpha (float): _description_ Weight for classifier guidance
+            eta (float, optional): _description_. Defaults to 0. Corresponds to η in paper and should be between [0, 1]
+            batch_size (int, optional): _description_. Defaults to 1. Number of samples to generate
+
+        Returns:
+            _type_: _description_
+        """
         # TODO: what is eta -> paper from imbalanced data defiened eta=0
 
         # Sample gaussian noise to begin loop
@@ -56,7 +73,6 @@ class MyPipeline(DiffusionPipeline):
             adjusted_output = model_output + alpha * classifier_output
 
             # 2. predict previous mean of image x_t-1 and add variance depending on eta
-            # eta corresponds to η in paper and should be between [0, 1]
             # do x_t -> x_t-1
             image = self.scheduler.step(adjusted_output, t, image, eta).prev_sample
 

@@ -1,6 +1,4 @@
-"""
-This is the main file for the diffusion-boundary package
-"""
+"""This is the main file for the diffusion-boundary package."""
 
 import torch
 
@@ -9,7 +7,7 @@ from src.diffusion import get_custom_pipe
 
 
 def generate_sample(pipe, classifier, preprocessing, num_inference_steps, alpha, device):
-    """_summary_"""
+    """Generate a sample image using the pipeline specified."""
     generator = torch.Generator(device=device).manual_seed(42)
     out = pipe(
         generator=generator,
@@ -23,9 +21,7 @@ def generate_sample(pipe, classifier, preprocessing, num_inference_steps, alpha,
 
 
 def main(num_inference_steps, alpha, device):
-    """
-    generate a sample image
-    """
+    """Generate a sample image."""
     # get classifier and pipe
     pipe = get_custom_pipe(device)
     classifier, preprocessing = get_classifier(device)
@@ -38,7 +34,7 @@ def main(num_inference_steps, alpha, device):
 if __name__ == "__main__":
     # TODO: integrate with wandb
 
-    # TODO: receive via arg
+    # TODO: receive via args or config file
     # seed
     DEVICE = "cuda:0"
     NUM_INFERENCE_STEPS = 5

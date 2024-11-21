@@ -1,14 +1,10 @@
-"""
-Module to load a pre-trained classifier and preprocessing
-"""
+"""Module to load a pre-trained classifier and preprocessing."""
 
 from torchvision import models, transforms
 
 
 def get_classifier(device):
-    """_summary_
-    classifier and preprocessing
-    """
+    """Get a pretrained classifer (ResNet50) and prepare the adequaate preprocessing."""
     # Load a pre-trained classifier
     classifier = models.resnet50(pretrained=True)
     classifier.eval()

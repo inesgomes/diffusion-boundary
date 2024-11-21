@@ -44,12 +44,12 @@ repos:
     rev: v3.3.1
     hooks:
     - id: pylint
-      args:
-        - '--max-positional-arguments=8'
-        - '--max-line-length=120'
-        - '-d duplicate-code'
-        - '--disable=W0511, C0103, C0411, line-too-long, I1101, import-error, too-many-arguments'  # Disable line-too-long since it's handled by Black/Ruff
-        - '--extension-pkg-allow-list=wandb'
+      args: [
+        '-d duplicate-code',
+        '--disable=W0511, C0103, C0411, line-too-long, I1101, import-error, too-few-public-methods, too-many-arguments',
+        '--extension-pkg-allow-list=wandb',
+        '--max-positional-arguments=8', # not working, i guess
+      ]
 
   - repo: https://github.com/asottile/blacken-docs
     rev: 1.19.1
@@ -73,7 +73,7 @@ repos:
     rev: 5.13.2
     hooks:
       - id: isort
-        args: ['--profile', "black", '-o', 'wandb', '-o', 'datasets']
+        args: ['--profile', 'black', '-o', 'wandb', '-o', 'datasets']
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.19.0

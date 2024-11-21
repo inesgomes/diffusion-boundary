@@ -3,15 +3,16 @@
 import argparse
 import os
 import sys
+from datetime import datetime
 
 import torch
 import wandb
 import yaml
 from dotenv import load_dotenv
-from datetime import datetime
 
 from src.classifier import get_vit_classifier
 from src.diffusion import get_custom_pipe
+
 
 def generate_run_id():
     """Generate a unique run id based on the current time."""

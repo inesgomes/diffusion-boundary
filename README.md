@@ -8,6 +8,7 @@ Use diffusion models to generate data points close to the decision boundary of c
 ## Pre-conditions
 
 - mamba
+- pre-commit
 
 ### create new mamba environent
 

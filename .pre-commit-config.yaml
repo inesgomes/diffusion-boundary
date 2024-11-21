@@ -1,5 +1,5 @@
 default_language_version:
-  python: python3.10
+  python: python3.11
 
 repos:
   # only when working in linux...
@@ -11,7 +11,6 @@ repos:
   #      language: system
   #      always_run: true
   #      pass_filenames: false
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:

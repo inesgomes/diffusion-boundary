@@ -1,0 +1,11 @@
+project: 20241121_diffusion
+name: playground
+job: noguidance
+
+device: cuda:0
+
+diffusion:
+  alpha: 0
+  eta: 1
+  num-inference-steps: 5
+  batch-size: 1

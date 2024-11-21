@@ -54,8 +54,7 @@ class MyPipeline(DiffusionPipeline):
             (batch_size, self.unet.config.in_channels, self.unet.config.sample_size, self.unet.config.sample_size),
             generator=generator,
         )
-        print(self.device)
-        image = image.to("cuda:0")
+        image = image.to(self.device)
 
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)

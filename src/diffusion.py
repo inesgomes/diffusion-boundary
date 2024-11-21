@@ -9,10 +9,9 @@ def get_custom_pipe(device):
 
     Example:
     butterflies: anton-l/ddpm-butterflies-128
+    cifar10: google/ddpm-cifar10-32
     """
-    pipe = PNDMPipeline.from_pretrained("google/ddpm-cifar10-32", custom_pipeline="src/guidance.py")
-    pipe.to(device)
-    return pipe
+    return PNDMPipeline.from_pretrained("google/ddpm-cifar10-32", custom_pipeline="src/guidance.py").to(device)
 
 
 def get_ldm_pipe(device):

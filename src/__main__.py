@@ -24,16 +24,15 @@ def generate_run_id():
 def generate_sample(pipe, classifier, preprocessing, diffusion_settings, device):
     """Generate a sample image using the pipeline specified."""
     generator = torch.Generator(device=device).manual_seed(42)
+    # TODO this must change to the correct pipeline
     out = pipe(
         generator=generator,
         classifier=classifier,
         preprocessing=preprocessing,
         num_inference_steps=diffusion_settings["num-inference-steps"],
-        alpha=diffusion_settings["alpha"],
-        eta=diffusion_settings["eta"],
         batch_size=diffusion_settings["batch-size"],
+        arguments=diffusion_settings["arguments"],
     )
-
     return out[0]
 
 
@@ -46,20 +45,21 @@ def main(configuration):
     wandb.init(
         project=configuration["project"],
         group=configuration["name"],
-        job_type=configuration["job"],
+        job_type=diffusion_settings["type"],
         entity=os.getenv("ENTITY"),
         name=generate_run_id(),
         config={
             "seed": 42,
-            "alpha": diffusion_settings["alpha"],
-            "eta": diffusion_settings["eta"],
-            "num_inference_steps": diffusion_settings["num-inference-steps"],
+            "diffusion": diffusion_settings,
+            "classsifier": configuration["classifier"],
         },
     )
 
     # get classifier and pipe
-    pipe = get_custom_pipe(device)
-    classifier, preprocessing = get_vit_classifier(device)
+    pipe = get_custom_pipe(
+        diffusion_settings["type"], diffusion_settings["model"], diffusion_settings["pipeline"], device
+    )
+    classifier, preprocessing = get_vit_classifier(configuration["classifier"]["model"], device)
 
     # generate sample and save
     image = generate_sample(pipe, classifier, preprocessing, diffusion_settings, device)
@@ -84,7 +84,11 @@ if __name__ == "__main__":
 
     try:
         with open(args.config_path, encoding="utf-8") as file:
+            # load configuration file
             config = yaml.safe_load(file)
+            # check if arguments exist
+            if "arguments" not in config["diffusion"]:
+                config["diffusion"]["arguments"] = None
             main(config)
     except FileNotFoundError:
         print(f"Config file {args.config_path} not found.")

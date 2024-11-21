@@ -2,13 +2,16 @@
 Module that contatins the code to guide the diffusion process with a classifier.
 
 inspiration: https://huggingface.co/hf-internal-testing/diffusers-dummy-pipeline/blob/main/pipeline.py
+
+TODO: implement classifier guidance
 """
 
+import numpy as np
 import torch
 from diffusers import DiffusionPipeline
 
 
-class MyPipeline(DiffusionPipeline):
+class ClassifierGuidance(DiffusionPipeline):
     """Dummy pipeline to test diffusion models with a classifier."""
 
     def __init__(self, unet, scheduler):
@@ -29,9 +32,8 @@ class MyPipeline(DiffusionPipeline):
         classifier,
         preprocessing,
         num_inference_steps: int,
-        alpha: float,
-        eta: float = 0,
         batch_size: int = 1,
+        arguments=None,
     ):
         """_summary_ Method to guide the diffusion process with a classifier.
 
@@ -47,7 +49,8 @@ class MyPipeline(DiffusionPipeline):
         Returns:
             _type_: _description_
         """
-        # TODO: what is eta -> paper from imbalanced data defiened eta=0
+        # TODO: what is eta -> paper from imbalanced data defined eta=0
+        # eta = arguments["eta"]
 
         # Sample gaussian noise to begin loop
         image = torch.randn(
@@ -63,21 +66,19 @@ class MyPipeline(DiffusionPipeline):
             # 1. predict noise model_output
             model_output = self.unet(image, t).sample
 
-            # TODO 2. classifier prediction
-            # inputs = preprocessing(images=image, return_tensors="pt")
-            # outputs = classifier(**inputs)
-            # prob = outputs.logits.argmax(dim=1)
-
-            # print(prob)
-            # classifier_output = np.abs(np.average(prob) - 0.5)
-            # classifier_output = 0
+            # 2. classifier prediction
+            inputs = preprocessing(images=image, return_tensors="pt")
+            outputs = classifier(**inputs)
+            prob = outputs.logits.argmax(dim=1)
+            print(prob)
+            classifier_output = np.abs(np.average(prob) - 0.5)
 
             # Adjust noise prediction with classifier guidance
-            # adjusted_output = model_output + alpha * classifier_output
+            adjusted_output = model_output + arguments["alpha"] * classifier_output
 
-            # 2. predict previous mean of image x_t-1 and add variance depending on eta
-            # do x_t -> x_t-1 (eta is only for LDM)
-            image = self.scheduler.step(model_output, t, image).prev_sample
+            # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
+            # add variance depending on eta (eta is only for LDM)
+            image = self.scheduler.step(adjusted_output, t, image).prev_sample
 
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()

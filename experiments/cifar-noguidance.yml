@@ -1,0 +1,16 @@
+project: 20241121_diffusion
+name: cifar-noguidance
+
+device: cpu
+
+classifier:
+  model: nateraw/vit-base-patch16-224-cifar10
+
+diffusion:
+  type: ddpm
+  model: google/ddpm-cifar10-32
+  pipeline: noguidance
+  num-inference-steps: 100
+  batch-size: 1
+
+    

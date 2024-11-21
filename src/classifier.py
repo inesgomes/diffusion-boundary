@@ -6,15 +6,14 @@ from torchvision import transforms
 from transformers import ViTFeatureExtractor, ViTForImageClassification
 
 
-def get_vit_classifier(device):
+def get_vit_classifier(model_name, device):
     """_summary_ Get a VIT model for image classification pre-trained with CIFAR10.
 
     Returns:
         _type_: _description_ model and feature_extractor
     """
-    feature_extractor = ViTFeatureExtractor.from_pretrained("nateraw/vit-base-patch16-224-cifar10")
-
-    model = ViTForImageClassification.from_pretrained("nateraw/vit-base-patch16-224-cifar10")
+    feature_extractor = ViTFeatureExtractor.from_pretrained(model_name)
+    model = ViTForImageClassification.from_pretrained(model_name)
     model.eval()
     model.to(device)
 

@@ -9,6 +9,12 @@ Use diffusion models to generate data points close to the decision boundary of c
 
 - mamba
 
+### create new mamba environent
+
+If working on Linux:
+
+``mamba env create -f environment.yml``
+
 ### env file
 
 Create .env file with the following information

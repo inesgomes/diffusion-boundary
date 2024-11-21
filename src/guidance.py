@@ -6,6 +6,7 @@ inspiration: https://huggingface.co/hf-internal-testing/diffusers-dummy-pipeline
 
 import torch
 from diffusers import DiffusionPipeline
+import numpy as np
 
 
 class MyPipeline(DiffusionPipeline):
@@ -64,16 +65,20 @@ class MyPipeline(DiffusionPipeline):
             model_output = self.unet(image, t).sample
 
             # TODO 2. classifier prediction
-            # prob = classifier(preprocess(image).unsqueeze(0))
-            # classifier_output = np.abs(prob - 1)
-            classifier_output = 0
+            #inputs = preprocessing(images=image, return_tensors="pt")
+            #outputs = classifier(**inputs)
+            #prob = outputs.logits.argmax(dim=1)
+           
+            #print(prob)
+            #classifier_output = np.abs(np.average(prob) - 0.5)
+            #classifier_output = 0
 
             # Adjust noise prediction with classifier guidance
-            adjusted_output = model_output + alpha * classifier_output
+            #adjusted_output = model_output + alpha * classifier_output
 
             # 2. predict previous mean of image x_t-1 and add variance depending on eta
-            # do x_t -> x_t-1
-            image = self.scheduler.step(adjusted_output, t, image, eta).prev_sample
+            # do x_t -> x_t-1 (eta is only for LDM)
+            image = self.scheduler.step(model_output, t, image).prev_sample
 
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()

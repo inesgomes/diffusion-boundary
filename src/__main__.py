@@ -8,9 +8,16 @@ import torch
 import wandb
 import yaml
 from dotenv import load_dotenv
+from datetime import datetime
 
 from src.classifier import get_vit_classifier
 from src.diffusion import get_custom_pipe
+
+def generate_run_id():
+    """Generate a unique run id based on the current time."""
+    current_time = datetime.utcnow()
+    seconds_since_midnight = current_time.hour * 3600 + current_time.minute * 60 + current_time.second
+    return f"{current_time.strftime('%Y-%m-%d')}T{seconds_since_midnight}"
 
 
 def generate_sample(pipe, classifier, preprocessing, diffusion_settings, device):
@@ -40,7 +47,7 @@ def main(configuration):
         group=configuration["name"],
         job_type=configuration["job"],
         entity=os.getenv("ENTITY"),
-        # name='', # maybe later can be useful
+        name=generate_run_id(),
         config={
             "seed": 42,
             "alpha": diffusion_settings["alpha"],

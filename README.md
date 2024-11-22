@@ -26,3 +26,12 @@ ENTITY=<wandb entity to track experiments>
 PRE_COMMIT_USE_MAMBA=1
 HF_HUB_OFFLINE=True
 ```
+
+## Pre-trained Diffusion Models
+
+- mnist: 1aurent/ddpm-mnist
+- cifar10: google/ddpm-cifar10-32
+- butterflies: anton-l/ddpm-butterflies-128
+- celebahq: 
+    - CompVis/ldm-celebahq-256
+    - google/ddpm-celebahq-256

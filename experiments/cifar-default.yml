@@ -1,13 +1,11 @@
 project: 20241121_diffusion
-name: cifar-default
+name: mnist-default
 
 device: cpu
-
-classifier:
-  model: nateraw/vit-base-patch16-224-cifar10
+seed: 42
 
 diffusion:
-  type: pndm # pndm, ddpm, ddim
-  model: google/ddpm-cifar10-32
+  #type: ddpm # pndm, ddpm, ddim
+  model: 1aurent/ddpm-mnist #google/ddpm-cifar10-32
   num-inference-steps: 100
   batch-size: 1

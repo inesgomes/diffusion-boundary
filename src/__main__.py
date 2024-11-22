@@ -2,32 +2,14 @@
 
 import argparse
 import os
-import sys
-from datetime import datetime
 
 import torch
 import wandb
-import yaml
 from dotenv import load_dotenv
 
 from src.classifier import get_vit_classifier
 from src.diffusion import get_custom_pipe, get_pipe
-
-
-def generate_run_id():
-    """Generate a unique run id based on the current time."""
-    current_time = datetime.utcnow()
-    seconds_since_midnight = current_time.hour * 3600 + current_time.minute * 60 + current_time.second
-    return f"{current_time.strftime('%Y-%m-%d')}T{seconds_since_midnight}"
-
-
-def generate_sample(pipe, num_inference_steps, batch_size, device, **kwargs):
-    """Generate a sample image using the pipeline specified."""
-    generator = torch.Generator(device=device).manual_seed(42)
-
-    out = pipe(generator=generator, num_inference_steps=num_inference_steps, batch_size=batch_size, **kwargs)
-    print(out)
-    return out[0]
+from src.utils import generate_run_id, load_configurations
 
 
 def main(configuration):
@@ -43,21 +25,20 @@ def main(configuration):
         entity=os.getenv("ENTITY"),
         name=generate_run_id(),
         config={
-            "seed": 42,
+            "seed": configuration["seed"],
             "diffusion": diffusion_settings,
             "classsifier": configuration["classifier"],
         },
     )
 
     # TODO: i dont like this, maybe I need to refactor the code
-
     args = {}
     if "pipeline" in diffusion_settings:
         # get custom pipeline
         pipe = get_custom_pipe(
             diffusion_settings["type"], diffusion_settings["model"], diffusion_settings["pipeline"], device
         )
-        if diffusion_settings["pipeline"] == "guidance":
+        if configuration["classifier"] is not None:
             # TODO: check which classifier
             # get classifier
             classifier, preprocessing = get_vit_classifier(configuration["classifier"]["model"], device)
@@ -67,7 +48,7 @@ def main(configuration):
         pipe = get_pipe(diffusion_settings["type"], diffusion_settings["model"], device)
 
     # create generator
-    generator = torch.Generator(device=device).manual_seed(42)
+    generator = torch.Generator(device=device).manual_seed(configuration["seed"])
 
     out = pipe(
         generator=generator,
@@ -75,7 +56,7 @@ def main(configuration):
         batch_size=diffusion_settings["batch-size"],
         **args,
     )
-    image = out[0]
+    image = out[0][0]
 
     # Log the image
     wandb.log({"sample_image": wandb.Image(image)})
@@ -93,15 +74,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", dest="config_path", required=True, help="Configuration file")
     my_args = parser.parse_args()
+    # load information from config file
+    config = load_configurations(my_args.config_path)
 
-    try:
-        with open(my_args.config_path, encoding="utf-8") as file:
-            # load configuration file
-            config = yaml.safe_load(file)
-            # check if arguments exist
-            if "arguments" not in config["diffusion"]:
-                config["diffusion"]["arguments"] = None
-            main(config)
-    except FileNotFoundError:
-        print(f"Config file {my_args.config_path} not found.")
-        sys.exit(1)
+    # execute code
+    main(config)

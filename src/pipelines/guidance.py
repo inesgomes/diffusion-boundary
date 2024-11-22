@@ -64,6 +64,8 @@ class ClassifierGuidance(DiffusionPipeline):
             # 1. predict noise model_output
             model_output = self.unet(image, t).sample
 
+            # todo: I think that the model ouput from unet is different from the classifier output. Check what the other girl did
+
             # 2. classifier prediction
             inputs = preprocessing(images=image, return_tensors="pt")
             outputs = classifier(**inputs)
@@ -76,6 +78,7 @@ class ClassifierGuidance(DiffusionPipeline):
             # add variance depending on eta (eta is only for LDM)
             image = self.scheduler.step(adjusted_output, t, image).prev_sample
 
+        # TODO: this is assuming only one image -> refactor to handle multiple images
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()
 

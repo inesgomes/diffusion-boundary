@@ -2,6 +2,7 @@ project: 20241121_diffusion
 name: cifar-guidance
 
 device: cpu
+seed: 42
 
 classifier:
   model: nateraw/vit-base-patch16-224-cifar10

@@ -7,9 +7,9 @@ import torch
 import wandb
 from dotenv import load_dotenv
 
-from src.classifier import get_vit_classifier
+from src.classifier import get_transformer_classifier
 from src.diffusion import get_custom_pipe, get_pipe
-from src.utils import generate_run_id, load_configurations
+from src.utils import create_image_grid, generate_run_id, load_configurations
 
 
 def main(configuration):
@@ -41,7 +41,7 @@ def main(configuration):
         if configuration["classifier"] is not None:
             # TODO: check which classifier
             # get classifier
-            classifier, preprocessing = get_vit_classifier(configuration["classifier"]["model"], device)
+            classifier, preprocessing = get_transformer_classifier(configuration["classifier"]["model"], device)
             args = {"classifier": classifier, "preprocessing": preprocessing, "alpha": diffusion_settings["alpha"]}
     else:
         # get default pipeline
@@ -56,10 +56,14 @@ def main(configuration):
         batch_size=diffusion_settings["batch-size"],
         **args,
     )
-    image = out[0][0]
+    # image = out[0]
+    # grid = make_grid_v1(out)
+
+    # Create a grid from the batch
+    grid = create_image_grid(out, max_columns=10)
 
     # Log the image
-    wandb.log({"sample_image": wandb.Image(image)})
+    wandb.log({"sample_grid": wandb.Image(grid)})
 
     wandb.finish()
 

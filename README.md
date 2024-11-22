@@ -27,7 +27,9 @@ PRE_COMMIT_USE_MAMBA=1
 HF_HUB_OFFLINE=True
 ```
 
-## Pre-trained Diffusion Models
+## Available options
+
+### Pre-trained Diffusion Models
 
 - mnist: 1aurent/ddpm-mnist
 - cifar10: google/ddpm-cifar10-32
@@ -35,3 +37,12 @@ HF_HUB_OFFLINE=True
 - celebahq: 
     - CompVis/ldm-celebahq-256
     - google/ddpm-celebahq-256
+
+
+### Datasets
+- MINST (28x28)
+    - ylecun/mnist
+- CIFAR (32x32)
+    - uoft-cs/cifar10
+- Butterflies (128x18)
+    - huggan/smithsonian_butterflies_subset

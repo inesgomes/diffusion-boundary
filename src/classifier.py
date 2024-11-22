@@ -3,7 +3,12 @@
 # from torchvision.models import resnet50, ResNet50_Weights
 import timm
 from torchvision import transforms
-from transformers import ViTFeatureExtractor, ViTForImageClassification
+from transformers import (
+    AutoImageProcessor,
+    AutoModelForImageClassification,
+    ViTFeatureExtractor,
+    ViTForImageClassification,
+)
 
 
 def get_vit_classifier(model_name, device):
@@ -25,6 +30,13 @@ def get_vit_classifier(model_name, device):
     # classes[preds[0]]
 
     return model, feature_extractor
+
+
+def get_transformer_classifier(model_name, device):
+    """Get a ResNET model for image classification pre-trained, of the types AutoImage."""
+    processor = AutoImageProcessor.from_pretrained(model_name).to(device)
+    model = AutoModelForImageClassification.from_pretrained(model_name).to(device)
+    return model, processor
 
 
 def get_vit_classifierget_classifier(device):

@@ -1,11 +1,11 @@
 project: 20241121_diffusion
-name: mnist-default
+name: cifar-default
 
 device: cpu
 seed: 42
 
 diffusion:
   #type: ddpm # pndm, ddpm, ddim
-  model: 1aurent/ddpm-mnist #google/ddpm-cifar10-32
+  model: google/ddpm-cifar10-32 #google/ddpm-celebahq-256 #1aurent/ddpm-mnist
   num-inference-steps: 100
   batch-size: 1

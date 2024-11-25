@@ -29,20 +29,43 @@ HF_HUB_OFFLINE=True
 
 ## Available options
 
+### Datasets
+
+- MINST (28x28)
+    - ylecun/mnist
+- **CIFAR (32x32)**
+    - **uoft-cs/cifar10**
+- Butterflies (128x18)
+    - huggan/smithsonian_butterflies_subset
+- AFHQ (64x64) - animal faces
+    - zzsi/afhq64_16k
+- CelebAHQ 
+    - TODO
+
 ### Pre-trained Diffusion Models
 
-- mnist: 1aurent/ddpm-mnist
-- cifar10: google/ddpm-cifar10-32
-- butterflies: anton-l/ddpm-butterflies-128
-- celebahq: 
+- MNIST: 
+    - 1aurent/ddpm-mnist
+- **CIFAR10**: 
+    - **google/ddpm-cifar10-32**
+- AFHQ: 
+    - krasnova/ddim_afhq_64
+- Butterflies: 
+    - anton-l/ddpm-butterflies-128
+- CelebAHQ: 
     - CompVis/ldm-celebahq-256
     - google/ddpm-celebahq-256
 
+### classifiers
 
-### Datasets
 - MINST (28x28)
-    - ylecun/mnist
-- CIFAR (32x32)
-    - uoft-cs/cifar10
+    - farleyknight-org-username/vit-base-mnist
+- **CIFAR (32x32)**
+    - hf_hub:edadaltocg/resnet50_cifar10
+    - **nateraw/vit-base-patch16-224-cifar10**
+- AFHQ (64x64) - animal faces
+    - to train
 - Butterflies (128x18)
-    - huggan/smithsonian_butterflies_subset
+    - (not possible)
+- CelebAHQ 
+    - (not easy)

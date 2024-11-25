@@ -3,7 +3,7 @@ Module that contatins the code to guide the diffusion process with a classifier.
 
 inspiration: https://huggingface.co/hf-internal-testing/diffusers-dummy-pipeline/blob/main/pipeline.py
 
-TODO: implement classifier guidance
+tutorial: https://huggingface.co/learn/diffusion-course/en/unit2/2#guidance
 """
 
 import torch

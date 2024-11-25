@@ -7,7 +7,7 @@ import torch
 import wandb
 from dotenv import load_dotenv
 
-from src.classifier import get_transformer_classifier
+from src.classifier import get_timm_classifier
 from src.diffusion import get_custom_pipe, get_pipe
 from src.utils import create_image_grid, generate_run_id, load_configurations
 
@@ -36,16 +36,16 @@ def main(configuration):
     if "pipeline" in diffusion_settings:
         # get custom pipeline
         pipe = get_custom_pipe(
-            diffusion_settings["type"], diffusion_settings["model"], diffusion_settings["pipeline"], device
+            diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
         )
         if configuration["classifier"] is not None:
-            # TODO: check which classifier
+            # TODO: only working for timm lib
             # get classifier
-            classifier, preprocessing = get_transformer_classifier(configuration["classifier"]["model"], device)
+            classifier, preprocessing = get_timm_classifier(configuration["classifier"]["name"], device)
             args = {"classifier": classifier, "preprocessing": preprocessing, "alpha": diffusion_settings["alpha"]}
     else:
         # get default pipeline
-        pipe = get_pipe(diffusion_settings["type"], diffusion_settings["model"], device)
+        pipe = get_pipe(diffusion_settings["type"], diffusion_settings["name"], device)
 
     # create generator
     generator = torch.Generator(device=device).manual_seed(configuration["seed"])
@@ -58,6 +58,8 @@ def main(configuration):
     )
     # image = out[0]
     # grid = make_grid_v1(out)
+
+    # TODO make predictions for the images and check the probabilities and entropy
 
     # Create a grid from the batch
     grid = create_image_grid(out, max_columns=10)

@@ -6,9 +6,10 @@ inspiration: https://huggingface.co/hf-internal-testing/diffusers-dummy-pipeline
 TODO: implement classifier guidance
 """
 
-import numpy as np
 import torch
+import wandb
 from diffusers import DiffusionPipeline
+from torch.nn import functional as F
 
 
 class ClassifierGuidance(DiffusionPipeline):
@@ -25,7 +26,18 @@ class ClassifierGuidance(DiffusionPipeline):
 
         self.register_modules(unet=unet, scheduler=scheduler)
 
-    @torch.no_grad()
+    def calculate_entropy(self, classifier, images):
+        """Calculate the entropy of the classifier output."""
+        # get classifier output
+        logits = classifier(images)
+        probs = F.softmax(logits, dim=1)
+        # entropy = F.cross_entropy(logits, probs, reduction='none')
+        return -torch.sum(probs * torch.log(probs + 1e-8), dim=1)
+
+    def calculate_batch_entropy(self, classifier, images):
+        """Calculate the standard deviation of the classifier output, to guide the diffusion process."""
+        return self.calculate_entropy(classifier, images).mean()
+
     def __call__(
         self,
         generator,
@@ -44,42 +56,53 @@ class ClassifierGuidance(DiffusionPipeline):
             _type_: _description_
         """
         classifier = kwargs.get("classifier", None)
-        preprocessing = kwargs.get("preprocessing", None)
         alpha = kwargs.get("alpha", None)
 
         # TODO: what is eta -> paper from imbalanced data defined eta=0
         # eta = kwargs.get("eta", None)
 
         # Sample gaussian noise to begin loop
-        image = torch.randn(
+        images = torch.randn(
             (batch_size, self.unet.config.in_channels, self.unet.config.sample_size, self.unet.config.sample_size),
             generator=generator,
-        )
-        image = image.to(self.device)
+        ).to(self.device)
 
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
 
+        # TODO: save this to wandb
         for t in self.progress_bar(self.scheduler.timesteps):
             # 1. predict noise model_output
-            model_output = self.unet(image, t).sample
+            with torch.no_grad():
+                noise_prediction = self.unet(images, t).sample
 
-            # todo: I think that the model ouput from unet is different from the classifier output. Check what the other girl did
+            # require gradient for the images
+            images = images.detach().requires_grad_()
+            # prediction of the noise model for the current timestep
+            images_0 = self.scheduler.step(noise_prediction, t, images).pred_original_sample
 
-            # 2. classifier prediction
-            inputs = preprocessing(images=image, return_tensors="pt")
-            outputs = classifier(**inputs)
-            classifier_output = np.abs(np.average(outputs.logits.argmax(dim=1)) - 0.5)
+            # 2. compute guidance
+            # noise_prediction += alpha * self.guidance_calculation_entropy(classifier, images)
 
-            # Adjust noise prediction with classifier guidance
-            adjusted_output = model_output + alpha * classifier_output
+            # Calculate loss
+            entropy = self.calculate_batch_entropy(classifier, images_0)
+            wandb.log({"entropy": entropy})
+            loss = entropy * alpha
+            wandb.log({"adjusted-loss": loss})
+
+            # Get gradient
+            cond_grad = -torch.autograd.grad(loss, images)[0]
+            images = images.detach() + cond_grad
 
             # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
             # add variance depending on eta (eta is only for LDM)
-            image = self.scheduler.step(adjusted_output, t, image).prev_sample
+            images = self.scheduler.step(noise_prediction, t, images).prev_sample
 
-        # TODO: this is assuming only one image -> refactor to handle multiple images
-        image = (image / 2 + 0.5).clamp(0, 1)
-        image = image.cpu().permute(0, 2, 3, 1).numpy()
+        print("RESULTS:")
+        print(F.softmax(classifier(images), dim=1).max(dim=1))
+        print(self.calculate_entropy(classifier, images))
 
-        return image
+        # deliver the synthetic images
+        images = (images / 2 + 0.5).clamp(0, 1)
+        images = images.cpu().permute(0, 2, 3, 1).numpy()
+        return images

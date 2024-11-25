@@ -27,7 +27,7 @@ PRE_COMMIT_USE_MAMBA=1
 HF_HUB_OFFLINE=True
 ```
 
-## Available options
+## Available options on HuggingFace
 
 ### Datasets
 
@@ -62,7 +62,6 @@ HF_HUB_OFFLINE=True
     - farleyknight-org-username/vit-base-mnist
 - **CIFAR (32x32)**
     - hf_hub:edadaltocg/resnet50_cifar10
-    - **nateraw/vit-base-patch16-224-cifar10**
 - AFHQ (64x64) - animal faces
     - to train
 - Butterflies (128x18)

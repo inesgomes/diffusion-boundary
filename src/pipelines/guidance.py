@@ -82,7 +82,6 @@ class ClassifierGuidance(DiffusionPipeline):
             images_0 = self.scheduler.step(noise_prediction, t, images).pred_original_sample
 
             # 2. compute guidance
-            # noise_prediction += alpha * self.guidance_calculation_entropy(classifier, images)
 
             # Calculate loss
             entropy = self.calculate_batch_entropy(classifier, images_0)
@@ -91,16 +90,12 @@ class ClassifierGuidance(DiffusionPipeline):
             wandb.log({"adjusted-loss": loss})
 
             # Get gradient
-            cond_grad = -torch.autograd.grad(loss, images)[0]
+            cond_grad = torch.autograd.grad(loss, images)[0]
             images = images.detach() + cond_grad
 
             # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
             # add variance depending on eta (eta is only for LDM)
             images = self.scheduler.step(noise_prediction, t, images).prev_sample
-
-        print("RESULTS:")
-        print(F.softmax(classifier(images), dim=1).max(dim=1))
-        print(self.calculate_entropy(classifier, images))
 
         # deliver the synthetic images
         images = (images / 2 + 0.5).clamp(0, 1)

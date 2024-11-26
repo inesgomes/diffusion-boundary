@@ -8,8 +8,6 @@ import numpy as np
 import yaml
 from PIL import Image
 
-# import matplotlib.pyplot as plt
-
 
 def generate_run_id():
     """Generate a unique run id based on the current time."""
@@ -33,12 +31,17 @@ def load_configurations(config_path):
         config["classifier"] = None
 
     # check if type exist
-    if "type" not in config["diffusion"]:
-        config["diffusion"]["type"] = "default"
+    if "pipeline" not in config["diffusion"]:
+        config["diffusion"]["pipeline"] = "default"
 
     # manual vs random seed
     if "seed" not in config:
         config["seed"] = random.randint(1, 100)
+
+    # unit tests
+    if "name" not in config["dataset"]:
+        print("Dataset name must be defined in the configuration file.")
+        sys.exit(1)
 
     # TODO confirm that some values are not None or do not exist
     return config
@@ -67,5 +70,10 @@ def create_image_grid(image_numpy, max_columns=10):
         col = idx % ncols
         grid[row * height : (row + 1) * height, col * width : (col + 1) * width, :] = img
 
-    # Convert grid from NumPy to PIL
-    return Image.fromarray((grid * 255).astype(np.uint8))  # Convert back to 0-255 range
+    # Convert back to 0-255 range
+    grid = (grid * 255).astype(np.uint8)
+
+    if channels == 1:  # 1-channel (Grayscale)
+        return Image.fromarray(grid.squeeze(-1), mode="L")  # "L" for grayscale
+    # 3-channel (RGB)
+    return Image.fromarray(grid, mode="RGB")

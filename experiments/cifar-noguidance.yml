@@ -11,10 +11,9 @@ classifier:
   lib: timm
 
 diffusion:
-  pipeline: guidance
+  pipeline: noguidance
   type: pndm # pndm, ddpm, ddim
   name: google/ddpm-cifar10-32
   args:
-    num-inference-steps: 200
-    batch-size: 10
-    alpha: 0.2
+    num-inference-steps: 100
+    batch-size: 1

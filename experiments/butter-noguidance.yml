@@ -1,12 +1,15 @@
 project: 20241121_diffusion
-name: butterflies-noguidance
 
 device: cpu
 seed: 42
 
+dataset:
+  name: butterflies
+
 diffusion:
-  type: ddim
-  model: anton-l/ddpm-butterflies-128
   pipeline: noguidance
-  num-inference-steps: 50
-  batch-size: 4
+  type: ddim
+  name: anton-l/ddpm-butterflies-128
+  args:
+    num-inference-steps: 50
+    batch-size: 4

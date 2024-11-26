@@ -1,44 +1,36 @@
 """Module to load a pre-trained classifier and preprocessing."""
 
+import sys
+
 import timm
 import torch
 from torchvision import transforms
 from torchvision.models import ResNet50_Weights, resnet50
-from transformers import (
-    AutoImageProcessor,
-    AutoModelForImageClassification,
-    ViTFeatureExtractor,
-    ViTForImageClassification,
-)
+from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 
-def get_vit_classifier(model_name, device):
-    """_summary_ Get a VIT model for image classification pre-trained with CIFAR10.
+def get_classifier(lib_name, model_name, device):
+    """Get a pre-trained classifier model and preprocessing according to library."""
+    if lib_name == "transformers":
+        return get_transformer_classifier(model_name, device)
+    if lib_name == "timm":
+        return get_timm_classifier(model_name, device)
+    print(f"Library {lib_name} not implemented.")
+    sys.exit(1)
 
-    Returns:
-        _type_: _description_ model and feature_extractor
-    """
-    feature_extractor = ViTFeatureExtractor.from_pretrained(model_name)
-    model = ViTForImageClassification.from_pretrained(model_name)
+
+def get_transformer_classifier(model_name, device):
+    """Get model for image classification pre-trained, of the types AutoImage."""
+    processor = AutoImageProcessor.from_pretrained(model_name)
+    processor.do_rescale = False
+
+    model = AutoModelForImageClassification.from_pretrained(model_name)
     model.eval()
     model.to(device)
 
     # USAGE:
     # inputs = feature_extractor(images=image, return_tensors="pt")
     # outputs = model(**inputs)
-    # preds = outputs.logits.argmax(dim=1)
-    # classes = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
-    # classes[preds[0]]
-
-    return model, feature_extractor
-
-
-def get_transformer_classifier(model_name, device):
-    """Get model for image classification pre-trained, of the types AutoImage."""
-    processor = AutoImageProcessor.from_pretrained(model_name).to(device)
-    model = AutoModelForImageClassification.from_pretrained(model_name)
-    model.eval()
-    model.to(device)
     return model, processor
 
 

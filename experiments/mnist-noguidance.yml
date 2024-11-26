@@ -7,7 +7,7 @@ dataset:
   name: mnist
 
 classifier:
-  name: fxmarty/resnet-tiny-mnist #farleyknight-org-username/vit-base-mnist
+  name: farleyknight-org-username/vit-base-mnist
   lib: transformers
 
 diffusion:
@@ -16,4 +16,4 @@ diffusion:
   pipeline: noguidance
   args:
     num-inference-steps: 100
-    batch-size: 2
+    batch-size: 5

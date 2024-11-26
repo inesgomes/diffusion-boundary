@@ -7,7 +7,7 @@ dataset:
   name: cifar10
 
 classifier:
-  name: hf_hub:SamAdamDay/resnet18_cifar10 #hf_hub:edadaltocg/resnet50_cifar10
+  name: hf_hub:SamAdamDay/resnet18_cifar10 # hf_hub:edadaltocg/resnet50_cifar10
   lib: timm
 
 diffusion:
@@ -15,5 +15,5 @@ diffusion:
   type: pndm # pndm, ddpm, ddim
   name: google/ddpm-cifar10-32
   args:
-    num-inference-steps: 100
-    batch-size: 1
+    num-inference-steps: 1000
+    batch-size: 10

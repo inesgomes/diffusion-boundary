@@ -6,9 +6,11 @@ inspiration: https://huggingface.co/hf-internal-testing/diffusers-dummy-pipeline
 tutorial: https://huggingface.co/learn/diffusion-course/en/unit2/2#guidance
 """
 
+from typing import List, Optional, Tuple, Union
+
 import torch
 import wandb
-from diffusers import DiffusionPipeline
+from diffusers import DiffusionPipeline, ImagePipelineOutput
 from torch.nn import functional as F
 
 
@@ -40,11 +42,13 @@ class ClassifierGuidance(DiffusionPipeline):
 
     def __call__(
         self,
-        generator,
-        num_inference_steps: int,
         batch_size: int = 1,
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+        num_inference_steps: int = 100,
+        output_type: Optional[str] = "pil",
+        return_dict: bool = True,
         **kwargs,
-    ):
+    ) -> Union[ImagePipelineOutput, Tuple]:
         """_summary_ Method to guide the diffusion process with a classifier.
 
         Args:
@@ -90,8 +94,8 @@ class ClassifierGuidance(DiffusionPipeline):
             wandb.log({"adjusted-loss": loss})
 
             # Get gradient
-            cond_grad = torch.autograd.grad(loss, images)[0]
-            images = images.detach() + cond_grad
+            # cond_grad = torch.autograd.grad(loss, images)[0]
+            images = images.detach() + torch.autograd.grad(loss, images)[0]
 
             # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
             # add variance depending on eta (eta is only for LDM)
@@ -100,4 +104,8 @@ class ClassifierGuidance(DiffusionPipeline):
         # deliver the synthetic images
         images = (images / 2 + 0.5).clamp(0, 1)
         images = images.cpu().permute(0, 2, 3, 1).numpy()
-        return images
+        if output_type == "pil":
+            images = self.numpy_to_pil(images)
+        if not return_dict:
+            return (images,)
+        return ImagePipelineOutput(images=images)

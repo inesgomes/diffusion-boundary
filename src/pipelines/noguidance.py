@@ -4,8 +4,10 @@ Module that contatins the code to guide the diffusion process with a classifier.
 inspiration: https://huggingface.co/hf-internal-testing/diffusers-dummy-pipeline/blob/main/pipeline.py
 """
 
+from typing import List, Optional, Tuple, Union
+
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import DiffusionPipeline, ImagePipelineOutput
 
 
 class NoGuidancePipeline(DiffusionPipeline):
@@ -25,11 +27,13 @@ class NoGuidancePipeline(DiffusionPipeline):
     @torch.no_grad()
     def __call__(
         self,
-        generator,
-        num_inference_steps: int,
         batch_size: int = 1,
-        arguments=None,
-    ):
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+        num_inference_steps: int = 100,
+        output_type: Optional[str] = "pil",
+        return_dict: bool = True,
+        **kwargs,
+    ) -> Union[ImagePipelineOutput, Tuple]:
         """_summary_ Method to guide the diffusion process with a classifier.
 
         Args:
@@ -41,23 +45,26 @@ class NoGuidancePipeline(DiffusionPipeline):
             _type_: _description_
         """
         # Sample gaussian noise to begin loop
-        image = torch.randn(
+        images = torch.randn(
             (batch_size, self.unet.config.in_channels, self.unet.config.sample_size, self.unet.config.sample_size),
             generator=generator,
         )
-        image = image.to(self.device)
+        images = images.to(self.device)
 
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
 
         for t in self.progress_bar(self.scheduler.timesteps):
             # 1. predict noise model_output
-            model_output = self.unet(image, t).sample
+            model_output = self.unet(images, t).sample
 
             # 2. predict previous mean of image x_t-1 -> do x_t -> x_t-1
-            image = self.scheduler.step(model_output, t, image).prev_sample
+            images = self.scheduler.step(model_output, t, images).prev_sample
 
-        image = (image / 2 + 0.5).clamp(0, 1)
-        image = image.cpu().permute(0, 2, 3, 1).numpy()
-
-        return image
+        images = (images / 2 + 0.5).clamp(0, 1)
+        images = images.cpu().permute(0, 2, 3, 1).numpy()
+        if output_type == "pil":
+            images = self.numpy_to_pil(images)
+        if not return_dict:
+            return (images,)
+        return ImagePipelineOutput(images=images)

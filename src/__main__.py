@@ -8,47 +8,59 @@ import torch
 import wandb
 from dotenv import load_dotenv
 from torch.nn import functional as F
-from transformers.modeling_outputs import ImageClassifierOutputWithNoAttention
 
-from src.classifier import get_classifier
+from src.classifier import get_timm_classifier, get_transformer_classifier
 from src.dataset import get_labels
-from src.diffusion import get_custom_pipe, get_pipe
-from src.utils import create_image_grid, generate_run_id, load_configurations
+from src.diffusion import get_custom_pipe, get_default_pipe
+from src.utils import generate_run_id, load_configurations
 
 
-def evaluate_classifier(classifier, classifier_type, preprocess, dataset_name, images, device):
-    """Evaluate the classifier on the generated images."""
-    # 1 vs 3 channels
-    if images.shape[3] == 1:
-        images = torch.tensor(images).squeeze(-1).unsqueeze(1)
-    elif images.shape[3] == 3:
-        images = torch.tensor(images).permute(0, 3, 1, 2)  # Rearrange to (batch_size, 3, height, width)
+def get_classifier(lib_name, model_name, dataset_name, device):
+    """Get a pre-trained classifier model and preprocessing according to library."""
+    if lib_name == "transformers":
+        return get_transformer_classifier(model_name, device)
+    if lib_name == "timm":
+        return get_timm_classifier(model_name, dataset_name, device)
+    raise ValueError(f"Library {lib_name} not implemented.")
+
+
+def get_pipeline(pipeline, diff_type, model, device):
+    """Get the pipeline for the diffusion model."""
+    if pipeline == "default":
+        return get_default_pipe(diff_type, model, device)
+    return get_custom_pipe(diff_type, model, pipeline, device)
+
+
+def get_arguments(pipeline_name, classifier, preprocessing, diffusion_settings):
+    """Get arguments for the diffusion pipeline. Currently only for guidance pipeline."""
+    if pipeline_name == "guidance":
+        return {
+            "classifier": classifier,
+            "preprocessing": preprocessing,
+            "alpha": diffusion_settings["args"]["alpha"],
+        }
+    return {}
+
+
+def evaluate_classifier(classifier, lib, preprocess, dataset_name, images):
+    """
+    Evaluate the classifier on the generated images.
+
+    # TODO: add this method to the relevant module
+    """
+    if lib == "transformers":
+        images = [img.convert("RGB") for img in images]
+        tensor_images = preprocess(images=images, return_tensors="pt")
+        logits = classifier(tensor_images["pixel_values"]).logits
     else:
-        raise ValueError(f"Unsupported image shape: {images.shape}")
+        tensor_images = torch.stack([preprocess(img) for img in images])
+        with torch.no_grad():
+            logits = classifier(tensor_images)
 
-    # Convert images back to PyTorch tensors
-    # TODO: I need to fix this. The preprocessing should be the same
-    if classifier_type == "transformers":
-        inputs = preprocess(images=images, return_tensors="pt").to(device)
-        # get predictions
-        outputs = classifier(**inputs)
-    else:
-        # Normalize images for the classifier
-        inputs = preprocess(images).to(device)
-        outputs = classifier(inputs)
-
-    # problem: mnist uses this model
-    if isinstance(outputs, ImageClassifierOutputWithNoAttention):
-        outputs = outputs.logits
-
-    print(outputs)
-    print("----------------")
-
-    probabilities = F.softmax(outputs, dim=1)
-    top_probs, top_indices = probabilities.topk(10, dim=1)
-
+    probabilities = F.softmax(logits, dim=1)
+    top_probs, top_indices = torch.topk(probabilities, k=10, dim=1)
     labels = get_labels(dataset_name)
-    # get labels
+
     return {
         i: {labels[int(idx)]: round(prob.item(), 2) for idx, prob in zip(top_indices[i], top_probs[i])}
         for i in range(top_indices.size(0))
@@ -75,52 +87,39 @@ def main(configuration):
         },
     )
 
-    # TODO: i dont like this, maybe I need to refactor the code
-    args = {}
+    # get classifier specifications
     classifier = None
     preprocessing = None
-    if diffusion_settings["pipeline"] != "default":
-        # get custom pipeline -> is only not needed for default pipeline
-        pipe = get_custom_pipe(
-            diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
+    if configuration["classifier"] is not None:
+        classifier, preprocessing = get_classifier(
+            configuration["classifier"]["lib"],
+            configuration["classifier"]["name"],
+            configuration["dataset"]["name"],
+            device,
         )
-        if configuration["classifier"] is not None:
-            # get classifier
-            classifier, preprocessing = get_classifier(
-                configuration["classifier"]["lib"], configuration["classifier"]["name"], device
-            )
-        if diffusion_settings["pipeline"] == "guidance":
-            # update pipeline for classifier guidance
-            args = {
-                "classifier": classifier,
-                "preprocessing": preprocessing,
-                "alpha": diffusion_settings["args"]["alpha"],
-            }
-    else:
-        # get default pipeline
-        pipe = get_pipe(diffusion_settings["type"], diffusion_settings["name"], device)
-
+    # get diffusion pipeline
+    pipe = get_pipeline(diffusion_settings["pipeline"], diffusion_settings["type"], diffusion_settings["name"], device)
+    # get arguments for the pipeline
+    args = get_arguments(diffusion_settings["pipeline"], classifier, preprocessing, diffusion_settings)
     # create generator
     generator = torch.Generator(device=device).manual_seed(configuration["seed"])
+
     # generate images
-    out = pipe(
+    images = pipe(
         generator=generator,
         num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
         batch_size=diffusion_settings["args"]["batch-size"],
         **args,
-    )
-
-    # Create a grid from the batch for visualization, and save
-    grid = create_image_grid(out, max_columns=10)
-    wandb.log({"sample_grid": wandb.Image(grid)})
+    ).images
+    # Log the grid as an image in WandB
+    wandb.log({"sample_grid": [wandb.Image(img) for img in images]})
 
     # evaluate the synthetic images with the classifier (if available)
     if (classifier is not None) and (preprocessing is not None):
         results = evaluate_classifier(
-            classifier, configuration["classifier"]["lib"], preprocessing, configuration["dataset"]["name"], out, device
+            classifier, configuration["classifier"]["lib"], preprocessing, configuration["dataset"]["name"], images
         )
         print("RESULTS:", json.dumps(results, indent=4))
-        wandb.log({"results": results})
 
     # finish wandb
     wandb.finish()

@@ -6,60 +6,71 @@ import os
 
 import torch
 import wandb
+from diffusers import DDIMPipeline, DDPMPipeline, DiffusionPipeline, PNDMPipeline
 from dotenv import load_dotenv
-from torch.nn import functional as F
 
-from src.classifier import get_timm_classifier, get_transformer_classifier
+from src.classifier.other import PretrainedOther
+from src.classifier.transformer import PretrainedTransformer
 from src.dataset import get_labels
-from src.diffusion import get_custom_pipe, get_default_pipe
 from src.utils import generate_run_id, load_configurations
 
 
-def get_classifier(lib_name, model_name, dataset_name, device):
-    """Get a pre-trained classifier model and preprocessing according to library."""
+def create_pretrained(lib_name, model_name, dataset_name, device):
+    """Create a pretrained model from a library."""
     if lib_name == "transformers":
-        return get_transformer_classifier(model_name, device)
+        return PretrainedTransformer(model_name, dataset_name, device)
     if lib_name == "timm":
-        return get_timm_classifier(model_name, dataset_name, device)
-    raise ValueError(f"Library {lib_name} not implemented.")
+        return PretrainedOther(model_name, dataset_name, device)
+    return ValueError(f"Library {lib_name} not implemented.")
 
 
-def get_pipeline(pipeline, diff_type, model, device):
-    """Get the pipeline for the diffusion model."""
-    if pipeline == "default":
-        return get_default_pipe(diff_type, model, device)
-    return get_custom_pipe(diff_type, model, pipeline, device)
+def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=None, device="cpu"):
+    """
+    General method to load pre-trained diffusion pipelines.
+
+    Parameters:
+        diff_type (str): The diffusion type ("ddpm", "ddim", "pndm", etc.).
+        model (str): Pretrained model identifier.
+        pipeline (str or None): Custom pipeline file path (if any).
+        device (str): Device to load the pipeline on ("cpu" or "cuda").
+
+    Returns:
+        DiffusionPipeline: The loaded pipeline.
+    """
+    pipeline_classes = {
+        "ddpm": DDPMPipeline,
+        "ddim": DDIMPipeline,
+        "pndm": PNDMPipeline,
+    }
+
+    # Select the pipeline class or fall back to the generic DiffusionPipeline
+    pipeline_class = pipeline_classes.get(diff_type, DiffusionPipeline)
+
+    # Handle custom pipeline logic if provided
+    custom_pipeline = None
+    if pipeline is not None:
+        custom_pipeline = f"src/pipelines/{pipeline}.py"
+
+    # Load and return the pipeline
+    return pipeline_class.from_pretrained(model, custom_pipeline=custom_pipeline).to(device)
 
 
-def get_arguments(pipeline_name, classifier, preprocessing, diffusion_settings):
+def create_arguments(pipeline_name, classifier, diffusion_settings):
     """Get arguments for the diffusion pipeline. Currently only for guidance pipeline."""
     if pipeline_name == "guidance":
         return {
             "classifier": classifier,
-            "preprocessing": preprocessing,
             "alpha": diffusion_settings["args"]["alpha"],
         }
     return {}
 
 
-def evaluate_classifier(classifier, lib, preprocess, dataset_name, images):
-    """
-    Evaluate the classifier on the generated images.
-
-    # TODO: add this method to the relevant module
-    """
-    if lib == "transformers":
-        images = [img.convert("RGB") for img in images]
-        tensor_images = preprocess(images=images, return_tensors="pt")
-        logits = classifier(tensor_images["pixel_values"]).logits
-    else:
-        tensor_images = torch.stack([preprocess(img) for img in images])
-        with torch.no_grad():
-            logits = classifier(tensor_images)
-
-    probabilities = F.softmax(logits, dim=1)
+def evaluate_classifier(classifier, images):
+    """Evaluate the classifier on the generated images."""
+    tensor_images = classifier.pil_to_tensor(images)
+    probabilities = classifier.predict(tensor_images)
     top_probs, top_indices = torch.topk(probabilities, k=10, dim=1)
-    labels = get_labels(dataset_name)
+    labels = get_labels(classifier.get_dataset_name())
 
     return {
         i: {labels[int(idx)]: round(prob.item(), 2) for idx, prob in zip(top_indices[i], top_probs[i])}
@@ -89,18 +100,20 @@ def main(configuration):
 
     # get classifier specifications
     classifier = None
-    preprocessing = None
     if configuration["classifier"] is not None:
-        classifier, preprocessing = get_classifier(
+        classifier = create_pretrained(
             configuration["classifier"]["lib"],
             configuration["classifier"]["name"],
             configuration["dataset"]["name"],
             device,
         )
+
     # get diffusion pipeline
-    pipe = get_pipeline(diffusion_settings["pipeline"], diffusion_settings["type"], diffusion_settings["name"], device)
+    pipe = create_pipeline(
+        diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
+    )
     # get arguments for the pipeline
-    args = get_arguments(diffusion_settings["pipeline"], classifier, preprocessing, diffusion_settings)
+    args = create_arguments(diffusion_settings["pipeline"], classifier, diffusion_settings)
     # create generator
     generator = torch.Generator(device=device).manual_seed(configuration["seed"])
 
@@ -115,10 +128,8 @@ def main(configuration):
     wandb.log({"sample_grid": [wandb.Image(img) for img in images]})
 
     # evaluate the synthetic images with the classifier (if available)
-    if (classifier is not None) and (preprocessing is not None):
-        results = evaluate_classifier(
-            classifier, configuration["classifier"]["lib"], preprocessing, configuration["dataset"]["name"], images
-        )
+    if classifier is not None:
+        results = evaluate_classifier(classifier, images)
         print("RESULTS:", json.dumps(results, indent=4))
 
     # finish wandb

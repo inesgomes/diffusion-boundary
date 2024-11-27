@@ -30,7 +30,7 @@ def load_configurations(config_path):
 
     # check if type exist
     if "pipeline" not in config["diffusion"]:
-        config["diffusion"]["pipeline"] = "default"
+        config["diffusion"]["pipeline"] = None
 
     # manual vs random seed
     if "seed" not in config:

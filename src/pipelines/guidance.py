@@ -11,7 +11,6 @@ from typing import List, Optional, Tuple, Union
 import torch
 import wandb
 from diffusers import DiffusionPipeline, ImagePipelineOutput
-from torch.nn import functional as F
 
 
 class ClassifierGuidance(DiffusionPipeline):
@@ -28,17 +27,33 @@ class ClassifierGuidance(DiffusionPipeline):
 
         self.register_modules(unet=unet, scheduler=scheduler)
 
-    def calculate_entropy(self, classifier, images):
+    def transform_images(self, images):
+        """Transform the images to the correct format for visualization."""
+        images = (images / 2 + 0.5).clamp(0, 1)
+        images = images.cpu().permute(0, 2, 3, 1).detach().numpy()
+        return images
+
+    def compute_entropy(self, classifier, images):
         """Calculate the entropy of the classifier output."""
         # get classifier output
-        logits = classifier(images)
-        probs = F.softmax(logits, dim=1)
-        # entropy = F.cross_entropy(logits, probs, reduction='none')
-        return -torch.sum(probs * torch.log(probs + 1e-8), dim=1)
+        probs = classifier.predict(images)
+        entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)
+        return entropy
 
-    def calculate_batch_entropy(self, classifier, images):
-        """Calculate the standard deviation of the classifier output, to guide the diffusion process."""
-        return self.calculate_entropy(classifier, images).mean()
+    def entropy_guidance(self, classifier, images):
+        """Calculate the gradient of the entropy with respect to the images."""
+        # Enable gradients for the pixel images
+        images = images.clone().detach().requires_grad_(True)
+
+        # Calculate entropy (scalar per image)
+        entropy = self.compute_entropy(classifier, images).mean()
+        wandb.log({"mean-entropy": entropy})
+
+        # Calculate gradient of the entropy with respect to the images
+        entropy_grad = torch.autograd.grad(entropy, images, create_graph=True)[0]
+        wandb.log({"loss-entropy": entropy_grad})
+
+        return entropy_grad
 
     def __call__(
         self,
@@ -74,36 +89,34 @@ class ClassifierGuidance(DiffusionPipeline):
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
 
-        # TODO: save this to wandb
         for t in self.progress_bar(self.scheduler.timesteps):
+
             # 1. predict noise model_output
             with torch.no_grad():
                 noise_prediction = self.unet(images, t).sample
 
             # require gradient for the images
             images = images.detach().requires_grad_()
+
             # prediction of the noise model for the current timestep
             images_0 = self.scheduler.step(noise_prediction, t, images).pred_original_sample
+            # images = self.scheduler.step(noise_prediction, t, images).prev_sample
 
             # 2. compute guidance
 
             # Calculate loss
-            entropy = self.calculate_batch_entropy(classifier, images_0)
-            wandb.log({"entropy": entropy})
-            loss = entropy * alpha
-            wandb.log({"adjusted-loss": loss})
+            # wandb.log({"entropy": entropy})
+            # wandb.log({"adjusted-loss": loss})
 
             # Get gradient
-            # cond_grad = torch.autograd.grad(loss, images)[0]
-            images = images.detach() + torch.autograd.grad(loss, images)[0]
+            entropy_grad = self.entropy_guidance(classifier, images_0)
+            images = images.detach() + alpha * entropy_grad
 
             # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
-            # add variance depending on eta (eta is only for LDM)
             images = self.scheduler.step(noise_prediction, t, images).prev_sample
 
         # deliver the synthetic images
-        images = (images / 2 + 0.5).clamp(0, 1)
-        images = images.cpu().permute(0, 2, 3, 1).numpy()
+        images = self.transform_images(images)
         if output_type == "pil":
             images = self.numpy_to_pil(images)
         if not return_dict:

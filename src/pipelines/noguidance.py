@@ -24,6 +24,12 @@ class NoGuidancePipeline(DiffusionPipeline):
 
         self.register_modules(unet=unet, scheduler=scheduler)
 
+    def transform_images(self, images):
+        """Transform the images to the correct format for visualization."""
+        images = (images / 2 + 0.5).clamp(0, 1)
+        images = images.cpu().permute(0, 2, 3, 1).numpy()
+        return images
+
     @torch.no_grad()
     def __call__(
         self,
@@ -48,21 +54,20 @@ class NoGuidancePipeline(DiffusionPipeline):
         images = torch.randn(
             (batch_size, self.unet.config.in_channels, self.unet.config.sample_size, self.unet.config.sample_size),
             generator=generator,
-        )
-        images = images.to(self.device)
+        ).to(self.device)
 
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
 
         for t in self.progress_bar(self.scheduler.timesteps):
             # 1. predict noise model_output
-            model_output = self.unet(images, t).sample
+            noise_prediction = self.unet(images, t).sample
 
             # 2. predict previous mean of image x_t-1 -> do x_t -> x_t-1
-            images = self.scheduler.step(model_output, t, images).prev_sample
+            images = self.scheduler.step(noise_prediction, t, images).prev_sample
 
-        images = (images / 2 + 0.5).clamp(0, 1)
-        images = images.cpu().permute(0, 2, 3, 1).numpy()
+        # deliver the synthetic images
+        images = self.transform_images(images)
         if output_type == "pil":
             images = self.numpy_to_pil(images)
         if not return_dict:

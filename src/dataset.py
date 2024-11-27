@@ -41,6 +41,6 @@ def get_labels(dataset_name):
     raise ValueError(f"Dataset {dataset_name} not supported.")
 
 
-def get_cifar10_dataset(dataset_name):
+def get_dataset(dataset_name):
     """Get a dataset."""
     return load_dataset(dataset_name)

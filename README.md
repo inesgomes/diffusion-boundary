@@ -59,7 +59,8 @@ HF_HUB_OFFLINE=True
 ### classifiers
 
 - MINST (28x28)
-    - farleyknight-org-username/vit-base-mnist
+    - farleyknight-org-username/vit-base-mnist (224x224)
+    - 
 - **CIFAR (32x32)**
     - hf_hub:edadaltocg/resnet50_cifar10
 - AFHQ (64x64) - animal faces

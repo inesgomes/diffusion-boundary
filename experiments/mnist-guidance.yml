@@ -1,0 +1,20 @@
+project: 20241121_diffusion
+
+device: cpu
+seed: 42
+
+dataset:
+  name: mnist
+
+classifier:
+  name: farleyknight-org-username/vit-base-mnist #fxmarty/resnet-tiny-mnist #
+  lib: transformers
+
+diffusion:
+  type: ddpm # pndm, ddpm, ddim
+  name: 1aurent/ddpm-mnist
+  pipeline: guidance
+  args:
+    num-inference-steps: 100
+    batch-size: 5
+    alpha: 0.5

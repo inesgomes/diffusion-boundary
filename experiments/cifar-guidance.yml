@@ -1,6 +1,6 @@
 project: 20241121_diffusion
 
-device: cpu
+device: cuda:1
 seed: 42
 
 dataset:
@@ -15,6 +15,6 @@ diffusion:
   type: pndm # pndm, ddpm, ddim
   name: google/ddpm-cifar10-32
   args:
-    num-inference-steps: 1000
+    num-inference-steps: 500
     batch-size: 5
     alpha: 0.2

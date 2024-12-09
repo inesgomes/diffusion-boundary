@@ -27,6 +27,10 @@ PRE_COMMIT_USE_MAMBA=1
 HF_HUB_OFFLINE=True
 ```
 
+## Run
+
+`pyhton -m src --config experiments/<NAME>`
+
 ## Available options on HuggingFace
 
 ### Datasets

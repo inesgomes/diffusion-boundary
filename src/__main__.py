@@ -65,9 +65,10 @@ def create_arguments(pipeline_name, classifier, diffusion_settings):
     return {}
 
 
-def evaluate_classifier(classifier, images):
+def evaluate_classifier(classifier, images, device):
     """Evaluate the classifier on the generated images."""
     tensor_images = classifier.pil_to_tensor(images)
+    tensor_images = tensor_images.to(device)
     probabilities = classifier.predict(tensor_images)
     top_probs, top_indices = torch.topk(probabilities, k=10, dim=1)
     labels = get_labels(classifier.get_dataset_name())
@@ -115,7 +116,7 @@ def main(configuration):
     # get arguments for the pipeline
     args = create_arguments(diffusion_settings["pipeline"], classifier, diffusion_settings)
     # create generator
-    generator = torch.Generator(device=device).manual_seed(configuration["seed"])
+    generator = torch.Generator().manual_seed(configuration["seed"])
 
     # generate images
     images = pipe(
@@ -129,7 +130,7 @@ def main(configuration):
 
     # evaluate the synthetic images with the classifier (if available)
     if classifier is not None:
-        results = evaluate_classifier(classifier, images)
+        results = evaluate_classifier(classifier, images, device)
         print("RESULTS:", json.dumps(results, indent=4))
 
     # finish wandb

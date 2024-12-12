@@ -9,18 +9,21 @@ import wandb
 from diffusers import DDIMPipeline, DDPMPipeline, DiffusionPipeline, PNDMPipeline
 from dotenv import load_dotenv
 
-from src.classifier.other import PretrainedOther
-from src.classifier.transformer import PretrainedTransformer
+from src.classifier.local import LocalClassifier
+from src.classifier.pretrained_other import PretrainedOther
+from src.classifier.pretrained_transformer import PretrainedTransformer
 from src.dataset import get_labels
 from src.utils import generate_run_id, load_configurations
 
 
-def create_pretrained(lib_name, model_name, dataset_name, device):
+def create_classifier(lib_name, model_name, dataset_name, device):
     """Create a pretrained model from a library."""
     if lib_name == "transformers":
         return PretrainedTransformer(model_name, dataset_name, device)
     if lib_name == "timm":
         return PretrainedOther(model_name, dataset_name, device)
+    if lib_name == "local":
+        return LocalClassifier(model_name, dataset_name, device)
     return ValueError(f"Library {lib_name} not implemented.")
 
 
@@ -47,9 +50,7 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
     pipeline_class = pipeline_classes.get(diff_type, DiffusionPipeline)
 
     # Handle custom pipeline logic if provided
-    custom_pipeline = None
-    if pipeline is not None:
-        custom_pipeline = f"src/pipelines/{pipeline}.py"
+    custom_pipeline = f"src/pipelines/{pipeline}.py" if pipeline else None
 
     # Load and return the pipeline
     return pipeline_class.from_pretrained(model, custom_pipeline=custom_pipeline).to(device)
@@ -65,12 +66,12 @@ def create_arguments(pipeline_name, classifier, diffusion_settings):
     return {}
 
 
-def evaluate_classifier(classifier, images, device):
+def evaluate_classifier(classifier, images, n_classes=10, device="cpu"):
     """Evaluate the classifier on the generated images."""
     tensor_images = classifier.pil_to_tensor(images)
     tensor_images = tensor_images.to(device)
     probabilities = classifier.predict(tensor_images)
-    top_probs, top_indices = torch.topk(probabilities, k=10, dim=1)
+    top_probs, top_indices = torch.topk(probabilities, k=n_classes, dim=1)
     labels = get_labels(classifier.get_dataset_name())
 
     return {
@@ -102,7 +103,7 @@ def main(configuration):
     # get classifier specifications
     classifier = None
     if configuration["classifier"] is not None:
-        classifier = create_pretrained(
+        classifier = create_classifier(
             configuration["classifier"]["lib"],
             configuration["classifier"]["name"],
             configuration["dataset"]["name"],
@@ -130,7 +131,7 @@ def main(configuration):
 
     # evaluate the synthetic images with the classifier (if available)
     if classifier is not None:
-        results = evaluate_classifier(classifier, images, device)
+        results = evaluate_classifier(classifier, images, configuration["dataset"]["n_classes"], device)
         print("RESULTS:", json.dumps(results, indent=4))
 
     # finish wandb
@@ -138,7 +139,6 @@ def main(configuration):
 
 
 if __name__ == "__main__":
-    # TODO: method should be able to receive my trained classifier
     # load environment variables
     load_dotenv()
 

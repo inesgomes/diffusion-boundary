@@ -4,7 +4,7 @@ import timm
 import torch
 from torch.nn import functional as F
 
-from src.classifier.base import Pretrained
+from src.classifier.pretrained_base import Pretrained
 from src.dataset import get_preprocessing
 
 

@@ -3,7 +3,7 @@
 from torch.nn import functional as F
 from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-from src.classifier.base import Pretrained
+from src.classifier.pretrained_base import Pretrained
 
 
 class PretrainedTransformer(Pretrained):

@@ -39,10 +39,10 @@ HF_HUB_OFFLINE=True
     - ylecun/mnist
 - **CIFAR (32x32)**
     - **uoft-cs/cifar10**
-- Butterflies (128x18)
-    - huggan/smithsonian_butterflies_subset
 - AFHQ (64x64) - animal faces
     - zzsi/afhq64_16k
+- Butterflies (128x18)
+    - huggan/smithsonian_butterflies_subset
 - CelebAHQ 
     - TODO
 
@@ -64,7 +64,6 @@ HF_HUB_OFFLINE=True
 
 - MINST (28x28)
     - farleyknight-org-username/vit-base-mnist (224x224)
-    - 
 - **CIFAR (32x32)**
     - hf_hub:edadaltocg/resnet50_cifar10
 - AFHQ (64x64) - animal faces

@@ -5,6 +5,7 @@ seed: 42
 
 dataset:
   name: cifar10
+  n_classes: 10
 
 diffusion:
   #type: ddpm # pndm, ddpm, ddim

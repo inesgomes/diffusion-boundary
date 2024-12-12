@@ -5,6 +5,7 @@ seed: 42
 
 dataset:
   name: cifar10
+  n_classes: 10
 
 classifier:
   name: hf_hub:SamAdamDay/resnet18_cifar10 # hf_hub:edadaltocg/resnet50_cifar10

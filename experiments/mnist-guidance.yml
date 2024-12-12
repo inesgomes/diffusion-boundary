@@ -5,6 +5,7 @@ seed: 42
 
 dataset:
   name: mnist
+  n_classes: 10
 
 classifier:
   name: farleyknight-org-username/vit-base-mnist #fxmarty/resnet-tiny-mnist #

@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import random
 
 import torch
 import wandb
@@ -12,7 +13,11 @@ from dotenv import load_dotenv
 from src.classifier.local import LocalClassifier
 from src.classifier.pretrained_other import PretrainedOther
 from src.classifier.pretrained_transformer import PretrainedTransformer
-from src.dataset import get_labels
+from src.evaluation import (
+    create_image_grid,
+    create_probability_grid,
+    label_synthetic_images,
+)
 from src.utils import generate_run_id, load_configurations
 
 
@@ -67,31 +72,19 @@ def create_arguments(pipeline_name, classifier, diffusion_settings):
     return {}
 
 
-def evaluate_classifier(classifier, images, device="cpu"):
-    """Evaluate the classifier on the generated images."""
-    # transform the images to tensor
-    tensor_images = classifier.pil_to_tensor(images)
-    tensor_images = tensor_images.to(device)
-    # get the probabilities
-    probabilities = classifier.predict(tensor_images)
+def visualize_synthetic_images(classifier, sampled_images, sampled_probs):
+    """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
+    # log the sample grid
+    if classifier and classifier.get_n_classes() == 2:
+        # specific grid for binary classification -> same as GASTeN
+        grid = create_probability_grid(sampled_images, sampled_probs)
+    else:
+        # generic grid
+        grid = create_image_grid(sampled_images)
 
-    # if binary classification, prepare the results
-    n_classes = classifier.get_n_classes()
-    if n_classes == 2:
-        probabilities = torch.stack([probabilities, 1 - probabilities], dim=1)
-    # get the top probabilities, indices and respective labels for each image (logging purposes)
-    top_probs, top_indices = torch.topk(probabilities, k=n_classes, dim=1)
-    labels = get_labels(classifier.get_dataset_name())
-    results_dict = {
-        i: {labels[int(idx)]: round(prob.item(), 2) for idx, prob in zip(top_indices[i], top_probs[i])}
-        for i in range(top_indices.size(0))
-    }
+        # TODO implement a new multi-class classification visualization
 
-    # TODO remaining metrics
-    # FID score
-    # ACD score
-
-    return results_dict
+    return grid
 
 
 def main(configuration):
@@ -131,23 +124,35 @@ def main(configuration):
     )
     # get arguments for the pipeline
     args = create_arguments(diffusion_settings["pipeline"], classifier, diffusion_settings)
-    # create generator
-    generator = torch.Generator().manual_seed(configuration["seed"])
 
     # generate images
     images = pipe(
-        generator=generator,
+        generator=torch.Generator().manual_seed(configuration["seed"]),
         num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
         batch_size=diffusion_settings["args"]["batch-size"],
         **args,
     ).images
-    # Log the grid as an image in WandB
-    wandb.log({"sample_grid": [wandb.Image(img) for img in images]})
 
-    # evaluate the synthetic images with the classifier (if available)
-    if classifier is not None:
-        results = evaluate_classifier(classifier, images, device)
-        print("RESULTS:", json.dumps(results, indent=4))
+    # EVALUATION
+
+    # sample images for visualization
+    n = min(len(images), configuration["evaluation"]["viz-sample"])
+    sampled_images = random.sample(images, n)
+    # probabilities if a classifier is provided
+    sampled_probs = classifier.predict_from_pil(sampled_images) if classifier else None
+
+    grid = visualize_synthetic_images(classifier, sampled_images, sampled_probs)
+    wandb.log({"sample_grid": wandb.Image(grid)})
+
+    if classifier:
+        # for the sampled images
+        results = label_synthetic_images(classifier, sampled_probs)
+        wandb.log({"sample_results": json.dumps(results, indent=4)})
+
+        # for the whole dataset
+        # TODO other synthetic images evaluation (using the classifier) - e.g. distributions
+
+    # TODO syntetic images validation (use pydmda)
 
     # finish wandb
     wandb.finish()

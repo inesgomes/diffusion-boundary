@@ -13,3 +13,6 @@ diffusion:
   args:
     num-inference-steps: 50
     batch-size: 4
+
+evaluation:
+  viz-sample: 50

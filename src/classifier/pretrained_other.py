@@ -30,4 +30,5 @@ class PretrainedOther(BaseClassifier):
     def pil_to_tensor(self, images):
         """Return the logits of the model for the given images."""
         tensor_images = torch.stack([self.preprocessor(img) for img in images])
+        tensor_images = tensor_images.to(self.device)
         return tensor_images

@@ -20,3 +20,6 @@ diffusion:
     num-inference-steps: 500
     batch-size: 5
     alpha: 0.2
+
+evaluation:
+  viz-sample: 50

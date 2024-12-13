@@ -20,6 +20,11 @@ class BaseClassifier:
         """Run forward pass and return predictions from PIL images."""
         raise NotImplementedError("Subclasses should implement this method")
 
+    def predict_from_pil(self, images):
+        """Return the logits of the model for the given images."""
+        tensor_images = self.pil_to_tensor(images)
+        return self.predict(tensor_images)
+
     def get_dataset_name(self):
         """Return the name of the dataset."""
         return self.dataset

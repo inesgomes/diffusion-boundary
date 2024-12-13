@@ -31,7 +31,7 @@ class LocalClassifier(BaseClassifier):
     def pil_to_tensor(self, images):
         """Return the logits of the model for the given images."""
         tensor_images = torch.stack([self.preprocessor(img) for img in images])
-        return tensor_images
+        return tensor_images.to(self.device)
 
     def construct_classifier_from_checkpoint(self, path):
         """Code from GASTeN library, to load a model locally trained."""

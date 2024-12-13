@@ -17,6 +17,9 @@ diffusion:
   pipeline: guidance
   args:
     guidance: acd
-    num-inference-steps: 100
-    batch-size: 5
+    num-inference-steps: 50
+    batch-size: 100
     alpha: 5
+
+evaluation:
+  viz-sample: 50

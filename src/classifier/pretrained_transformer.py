@@ -28,4 +28,5 @@ class PretrainedTransformer(BaseClassifier):
         """Return the logits of the model for the given images."""
         images = [img.convert("RGB") for img in images]
         tensor_images = self.preprocessor(images=images, return_tensors="pt").to(self.device)
+        tensor_images = tensor_images.to(self.device)
         return tensor_images["pixel_values"]

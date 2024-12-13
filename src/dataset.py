@@ -11,7 +11,6 @@ from torchvision import transforms
 
 def get_preprocessing(dataset_name):
     """Get preprocessing for a dataset, given its name. The normalization values are taken from documentation."""
-    # Preprocessing for classifier input
     if dataset_name == "cifar10":
         return transforms.Compose(
             [
@@ -21,7 +20,8 @@ def get_preprocessing(dataset_name):
                 ),  # Normalize CIFAR10 images with mean and std
             ]
         )
-    if dataset_name == "mnist":
+    # if dataset contains mnist in the name
+    if "mnist" in dataset_name:
         return transforms.Compose(
             [
                 transforms.ToTensor(),
@@ -38,6 +38,8 @@ def get_labels(dataset_name):
         return ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"]
     if dataset_name == "mnist":
         return list(range(10))
+    if dataset_name == "mnist.9v4":
+        return ["4", "9"]
     raise ValueError(f"Dataset {dataset_name} not supported.")
 
 

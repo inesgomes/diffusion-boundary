@@ -16,6 +16,7 @@ diffusion:
   type: pndm # pndm, ddpm, ddim
   name: google/ddpm-cifar10-32
   args:
+    guidance: entropy
     num-inference-steps: 500
     batch-size: 5
     alpha: 0.2

@@ -1,5 +1,6 @@
 """Utility functions for the project."""
 
+import os
 import random
 import sys
 from datetime import datetime
@@ -27,6 +28,9 @@ def load_configurations(config_path):
     # check if classifier exist
     if "classifier" not in config:
         config["classifier"] = None
+    else:
+        if config["classifier"]["lib"] == "local":
+            config["classifier"]["name"] = os.getenv("MODELS_DIR") + "/" + config["classifier"]["name"]
 
     # check if type exist
     if "pipeline" not in config["diffusion"]:

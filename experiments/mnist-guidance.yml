@@ -16,6 +16,7 @@ diffusion:
   name: 1aurent/ddpm-mnist
   pipeline: guidance
   args:
+    guidance: entropy
     num-inference-steps: 100
     batch-size: 5
     alpha: 0.5

@@ -16,14 +16,14 @@ from src.dataset import get_labels
 from src.utils import generate_run_id, load_configurations
 
 
-def create_classifier(lib_name, model_name, dataset_name, device):
+def create_classifier(lib_name, model_name, dataset_name, n_classes, device):
     """Create a pretrained model from a library."""
     if lib_name == "transformers":
-        return PretrainedTransformer(model_name, dataset_name, device)
+        return PretrainedTransformer(model_name, dataset_name, n_classes, device)
     if lib_name == "timm":
-        return PretrainedOther(model_name, dataset_name, device)
+        return PretrainedOther(model_name, dataset_name, n_classes, device)
     if lib_name == "local":
-        return LocalClassifier(model_name, dataset_name, device)
+        return LocalClassifier(model_name, dataset_name, n_classes, device)
     return ValueError(f"Library {lib_name} not implemented.")
 
 
@@ -62,22 +62,36 @@ def create_arguments(pipeline_name, classifier, diffusion_settings):
         return {
             "classifier": classifier,
             "alpha": diffusion_settings["args"]["alpha"],
+            "guidance_type": diffusion_settings["args"]["guidance"],
         }
     return {}
 
 
-def evaluate_classifier(classifier, images, n_classes=10, device="cpu"):
+def evaluate_classifier(classifier, images, device="cpu"):
     """Evaluate the classifier on the generated images."""
+    # transform the images to tensor
     tensor_images = classifier.pil_to_tensor(images)
     tensor_images = tensor_images.to(device)
+    # get the probabilities
     probabilities = classifier.predict(tensor_images)
+
+    # if binary classification, prepare the results
+    n_classes = classifier.get_n_classes()
+    if n_classes == 2:
+        probabilities = torch.stack([probabilities, 1 - probabilities], dim=1)
+    # get the top probabilities, indices and respective labels for each image (logging purposes)
     top_probs, top_indices = torch.topk(probabilities, k=n_classes, dim=1)
     labels = get_labels(classifier.get_dataset_name())
-
-    return {
+    results_dict = {
         i: {labels[int(idx)]: round(prob.item(), 2) for idx, prob in zip(top_indices[i], top_probs[i])}
         for i in range(top_indices.size(0))
     }
+
+    # TODO remaining metrics
+    # FID score
+    # ACD score
+
+    return results_dict
 
 
 def main(configuration):
@@ -107,6 +121,7 @@ def main(configuration):
             configuration["classifier"]["lib"],
             configuration["classifier"]["name"],
             configuration["dataset"]["name"],
+            configuration["dataset"]["n_classes"],
             device,
         )
 
@@ -131,7 +146,7 @@ def main(configuration):
 
     # evaluate the synthetic images with the classifier (if available)
     if classifier is not None:
-        results = evaluate_classifier(classifier, images, configuration["dataset"]["n_classes"], device)
+        results = evaluate_classifier(classifier, images, device)
         print("RESULTS:", json.dumps(results, indent=4))
 
     # finish wandb

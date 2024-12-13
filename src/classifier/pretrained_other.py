@@ -4,16 +4,16 @@ import timm
 import torch
 from torch.nn import functional as F
 
-from src.classifier.pretrained_base import Pretrained
+from src.classifier.base import BaseClassifier
 from src.dataset import get_preprocessing
 
 
-class PretrainedOther(Pretrained):
+class PretrainedOther(BaseClassifier):
     """Class for pre-trained models from the timm library."""
 
-    def __init__(self, model_name, dataset, device):
+    def __init__(self, model_name, dataset, n_classes, device):
         """Construct the PretrainedOther class."""
-        super().__init__(model_name, dataset, device)
+        super().__init__(model_name, dataset, n_classes, device)
 
         self.model = timm.create_model(model_name, pretrained=True)
         self.model.to(self.device)

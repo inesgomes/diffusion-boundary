@@ -3,15 +3,15 @@
 from torch.nn import functional as F
 from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-from src.classifier.pretrained_base import Pretrained
+from src.classifier.base import BaseClassifier
 
 
-class PretrainedTransformer(Pretrained):
+class PretrainedTransformer(BaseClassifier):
     """Class for pre-trained models from the transformers library."""
 
-    def __init__(self, model_name, dataset, device):
+    def __init__(self, model_name, dataset, n_classes, device):
         """Construct the PretrainedTransformer class."""
-        super().__init__(model_name, dataset, device)
+        super().__init__(model_name, dataset, n_classes, device)
 
         self.model = AutoModelForImageClassification.from_pretrained(model_name)
         self.model.to(self.device)

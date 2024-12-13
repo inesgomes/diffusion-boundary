@@ -4,18 +4,19 @@ device: cuda:1
 seed: 42
 
 dataset:
-  name: mnist
+  name: mnist.9v4
   n_classes: 2
 
 classifier:
-  name: /media/SEAGATE6T/IGOMES/gasten/models/mnist.9v4/cnn-2-1.40022
+  name: mnist.9v4/cnn-2-1.40022
   lib: local
 
 diffusion:
   type: ddpm # pndm, ddpm, ddim
   name: 1aurent/ddpm-mnist
-  pipeline: noguidance
+  pipeline: guidance
   args:
+    guidance: acd
     num-inference-steps: 100
     batch-size: 5
     alpha: 5

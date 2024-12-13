@@ -3,21 +3,20 @@
 import os
 
 import torch
-from torch.nn import functional as F
 
+from src.classifier.base import BaseClassifier
 from src.classifier.cnn import CNN
 from src.dataset import get_preprocessing
 
 
-class LocalClassifier:
+class LocalClassifier(BaseClassifier):
     """Class for pre-trained models from the timm library."""
 
-    def __init__(self, model_path, dataset, device):
+    def __init__(self, model_path, dataset, n_classes, device):
         """Construct the LocalClassifier class."""
-        self.device = device
+        super().__init__(model_path, dataset, n_classes, device)
 
         # image preprocessor
-        self.dataset = dataset
         self.preprocessor = get_preprocessing(dataset)
 
         # model
@@ -27,9 +26,7 @@ class LocalClassifier:
 
     def predict(self, tensor_images):
         """Return the logits of the model for the given images."""
-        logits = self.model(tensor_images)
-        probs = F.softmax(logits, dim=1)
-        return probs
+        return self.model(tensor_images)
 
     def pil_to_tensor(self, images):
         """Return the logits of the model for the given images."""

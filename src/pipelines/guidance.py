@@ -55,6 +55,29 @@ class ClassifierGuidance(DiffusionPipeline):
 
         return entropy_grad
 
+    def compute_cd(self, classifier, images):
+        """Calculate the confusion distance of the classifier output."""
+        # get classifier output
+        probs = classifier.predict(images)
+        # compute confusion distance (CD) = |0.5 - probs|
+        cd = (0.5 - probs).abs()
+        return cd
+
+    def cd_guidance(self, classifier, images):
+        """Calculate the gradient of the entropy with respect to the images."""
+        # Enable gradients for the pixel images
+        images = images.clone().detach().requires_grad_(True)
+
+        # Calculate average confusion distance (scalar per image)
+        acd = self.compute_cd(classifier, images).mean()
+        wandb.log({"acd": acd})
+
+        # Calculate gradient of the confusion distance with respect to the images
+        acd_grad = torch.autograd.grad(acd, images, create_graph=True)[0]
+        wandb.log({"loss-acd": acd_grad})
+
+        return acd_grad
+
     def __call__(
         self,
         batch_size: int = 1,
@@ -76,6 +99,7 @@ class ClassifierGuidance(DiffusionPipeline):
         """
         classifier = kwargs.get("classifier", None)
         alpha = kwargs.get("alpha", None)
+        guidance_type = kwargs.get("guidance_type", None)
 
         # TODO: what is eta -> paper from imbalanced data defined eta=0
         # eta = kwargs.get("eta", None)
@@ -100,17 +124,17 @@ class ClassifierGuidance(DiffusionPipeline):
 
             # prediction of the noise model for the current timestep
             images_0 = self.scheduler.step(noise_prediction, t, images).pred_original_sample
-            # images = self.scheduler.step(noise_prediction, t, images).prev_sample
 
             # 2. compute guidance
 
-            # Calculate loss
-            # wandb.log({"entropy": entropy})
-            # wandb.log({"adjusted-loss": loss})
-
             # Get gradient
-            entropy_grad = self.entropy_guidance(classifier, images_0)
-            images = images.detach() + alpha * entropy_grad
+            grad = 0
+            if guidance_type == "entropy":
+                grad = self.entropy_guidance(classifier, images_0)
+            if guidance_type == "acd":
+                grad = self.cd_guidance(classifier, images_0)
+
+            images = images.detach() + alpha * grad
 
             # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
             images = self.scheduler.step(noise_prediction, t, images).prev_sample

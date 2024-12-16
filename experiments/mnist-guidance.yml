@@ -1,6 +1,6 @@
 project: 20241121_diffusion
 
-device: cpu
+device: cuda:1
 seed: 42
 
 dataset:
@@ -18,8 +18,8 @@ diffusion:
   args:
     guidance: entropy
     num-inference-steps: 100
-    batch-size: 5
+    batch-size: 5000
     alpha: 0.5
 
 evaluation:
-  viz-sample: 50
+  viz-sample-size: 50

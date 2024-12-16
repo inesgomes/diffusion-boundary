@@ -3,33 +3,21 @@
 import argparse
 import json
 import os
-import random
 
 import torch
 import wandb
 from diffusers import DDIMPipeline, DDPMPipeline, DiffusionPipeline, PNDMPipeline
 from dotenv import load_dotenv
 
-from src.classifier.local import LocalClassifier
-from src.classifier.pretrained_other import PretrainedOther
-from src.classifier.pretrained_transformer import PretrainedTransformer
+from src.classifier.factory import ClassifierFactory
+from src.dataset.aux import get_tst_dataset
+from src.dataset.factory import DatasetFactory
 from src.evaluation import (
-    create_image_grid,
-    create_probability_grid,
-    label_synthetic_images,
+    calculate_fid_metric,
+    calculate_synthetic_metrics,
+    sample_synthetic_images,
 )
-from src.utils import generate_run_id, load_configurations
-
-
-def create_classifier(lib_name, model_name, dataset_name, n_classes, device):
-    """Create a pretrained model from a library."""
-    if lib_name == "transformers":
-        return PretrainedTransformer(model_name, dataset_name, n_classes, device)
-    if lib_name == "timm":
-        return PretrainedOther(model_name, dataset_name, n_classes, device)
-    if lib_name == "local":
-        return LocalClassifier(model_name, dataset_name, n_classes, device)
-    return ValueError(f"Library {lib_name} not implemented.")
+from src.utils import generate_group_name, generate_run_id, load_configurations
 
 
 def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=None, device="cpu"):
@@ -72,31 +60,14 @@ def create_arguments(pipeline_name, classifier, diffusion_settings):
     return {}
 
 
-def visualize_synthetic_images(classifier, sampled_images, sampled_probs):
-    """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
-    # log the sample grid
-    if classifier and classifier.get_n_classes() == 2:
-        # specific grid for binary classification -> same as GASTeN
-        grid = create_probability_grid(sampled_images, sampled_probs)
-    else:
-        # generic grid
-        grid = create_image_grid(sampled_images)
-
-        # TODO implement a new multi-class classification visualization
-
-    return grid
-
-
 def main(configuration):
     """Generate a sample image."""
     diffusion_settings = configuration["diffusion"]
-    device = configuration["device"]
-    group_name = configuration["dataset"]["name"] + "_" + configuration["diffusion"]["pipeline"]
 
     # init wandb
     wandb.init(
         project=configuration["project"],
-        group=group_name,
+        group=generate_group_name(configuration),
         job_type=diffusion_settings["type"],
         entity=os.getenv("ENTITY"),
         name=generate_run_id(),
@@ -110,17 +81,15 @@ def main(configuration):
     # get classifier specifications
     classifier = None
     if configuration["classifier"] is not None:
-        classifier = create_classifier(
+        classifier = ClassifierFactory.model_from_lib(
             configuration["classifier"]["lib"],
             configuration["classifier"]["name"],
-            configuration["dataset"]["name"],
-            configuration["dataset"]["n_classes"],
-            device,
+            configuration["device"],
         )
 
     # get diffusion pipeline
     pipe = create_pipeline(
-        diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
+        diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], configuration["device"]
     )
     # get arguments for the pipeline
     args = create_arguments(diffusion_settings["pipeline"], classifier, diffusion_settings)
@@ -133,26 +102,48 @@ def main(configuration):
         **args,
     ).images
 
+    # create synthetic dataset
+    synth_dataset = DatasetFactory.dataset_from_lib(
+        configuration["classifier"]["lib"],
+        configuration["classifier"]["name"],
+        configuration["dataset"]["name"],
+        configuration["dataset"]["n_classes"],
+        images,
+        configuration["device"],
+    )
+
+    # create real dataset with same configs for evaluation purposes
+    real_images = get_tst_dataset(
+        configuration["dataset"]["name"],
+        configuration["dataset"]["subset"],
+        diffusion_settings["args"]["batch-size"],
+    )
+    real_dataset = DatasetFactory.dataset_from_lib(
+        configuration["classifier"]["lib"],
+        configuration["classifier"]["name"],
+        configuration["dataset"]["name"],
+        configuration["dataset"]["n_classes"],
+        real_images,
+        configuration["device"],
+    )
+
     # EVALUATION
 
-    # sample images for visualization
-    n = min(len(images), configuration["evaluation"]["viz-sample"])
-    sampled_images = random.sample(images, n)
-    # probabilities if a classifier is provided
-    sampled_probs = classifier.predict_from_pil(sampled_images) if classifier else None
-
-    grid = visualize_synthetic_images(classifier, sampled_images, sampled_probs)
+    # grid and probs for sampled images
+    grid, results = sample_synthetic_images(
+        synth_dataset, configuration["evaluation"]["viz-sample-size"], classifier, configuration["dataset"]["subset"]
+    )
     wandb.log({"sample_grid": wandb.Image(grid)})
+    wandb.log({"sample_results": json.dumps(results, indent=4)})
 
-    if classifier:
-        # for the sampled images
-        results = label_synthetic_images(classifier, sampled_probs)
-        wandb.log({"sample_results": json.dumps(results, indent=4)})
+    # quality metrics (Improived precision, Improved Recall, Density and Coverage)
+    metrics, viz = calculate_synthetic_metrics(real_dataset, synth_dataset, configuration["device"])
+    wandb.log(metrics)
+    wandb.log({"umap": wandb.Image(viz)})
 
-        # for the whole dataset
-        # TODO other synthetic images evaluation (using the classifier) - e.g. distributions
-
-    # TODO syntetic images validation (use pydmda)
+    # FID score (needs a different feature extractor)
+    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["device"])
+    wandb.log({"FID_score": fid_value})
 
     # finish wandb
     wandb.finish()

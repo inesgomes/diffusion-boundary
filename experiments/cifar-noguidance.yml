@@ -20,4 +20,4 @@ diffusion:
     batch-size: 5
 
 evaluation:
-  viz-sample: 50
+  viz-sample-size: 50

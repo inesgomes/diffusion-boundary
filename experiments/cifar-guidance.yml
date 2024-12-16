@@ -17,9 +17,9 @@ diffusion:
   name: google/ddpm-cifar10-32
   args:
     guidance: entropy
-    num-inference-steps: 500
-    batch-size: 5
+    num-inference-steps: 100
+    batch-size: 10
     alpha: 0.2
 
 evaluation:
-  viz-sample: 50
+  viz-sample-size: 5

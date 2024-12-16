@@ -4,7 +4,8 @@ device: cuda:1
 seed: 42
 
 dataset:
-  name: mnist.9v4
+  name: mnist
+  subset: ["4", "9"]
   n_classes: 2
 
 classifier:
@@ -18,8 +19,8 @@ diffusion:
   args:
     guidance: acd
     num-inference-steps: 50
-    batch-size: 100
+    batch-size: 10
     alpha: 5
 
 evaluation:
-  viz-sample: 50
+  viz-sample-size: 5

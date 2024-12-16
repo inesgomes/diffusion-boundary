@@ -1,6 +1,6 @@
 project: 20241121_diffusion
 
-device: cpu
+device: cuda:1
 seed: 42
 
 dataset:
@@ -17,7 +17,7 @@ diffusion:
   pipeline: noguidance
   args:
     num-inference-steps: 100
-    batch-size: 5
+    batch-size: 50
 
 evaluation:
-  viz-sample: 50
+  viz-sample-size: 50

@@ -1,0 +1,16 @@
+"""Factory for creating datasets given the library and model name."""
+
+from .datasets import OtherDataset, TransfomerDataset
+
+
+class DatasetFactory:
+    """Class for creating datasets given the library and model name."""
+
+    @staticmethod
+    def dataset_from_lib(lib_name: str, model_name: str, dataset_name: str, n_classes: int, images: list, device: str):
+        """Given the library and model name, return the corresponding dataset."""
+        if lib_name == "transformers":
+            return TransfomerDataset(dataset_name, n_classes, model_name, images, device)
+        if lib_name in ("timm", "local"):
+            return OtherDataset(dataset_name, n_classes, images, device)
+        return ValueError(f"Library {lib_name} not implemented.")

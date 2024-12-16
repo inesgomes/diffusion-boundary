@@ -1,1 +1,1 @@
-"""Package for the classifier."""
+"""Package for handling differnt classifiers."""

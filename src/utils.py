@@ -15,6 +15,13 @@ def generate_run_id():
     return f"{current_time.strftime('%Y-%m-%d')}T{seconds_since_midnight}"
 
 
+def generate_group_name(configuration):
+    """Generate a unique group name based on the configuration."""
+    subset = configuration["dataset"].get("subset")
+    dataset_name = f"{configuration['dataset']['name']}{'v'.join(subset) if subset else ''}"
+    return f"{dataset_name}_{configuration['diffusion']['pipeline']}"
+
+
 def load_configurations(config_path):
     """Load configuration file from path and modify accondingly."""
     try:
@@ -35,6 +42,10 @@ def load_configurations(config_path):
     # check if type exist
     if "pipeline" not in config["diffusion"]:
         config["diffusion"]["pipeline"] = None
+
+    # check if dataset subset exist
+    if "subset" not in config["dataset"]:
+        config["dataset"]["subset"] = None
 
     # manual vs random seed
     if "seed" not in config:

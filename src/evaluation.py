@@ -121,8 +121,8 @@ def calculate_synthetic_metrics(real_dataset, synth_dataset):
     """
     # extract features to compute quality metrics
     extractor = ExtractorFactory.model_from_name(name="dino_vits8")
-    real_features = extractor(real_dataset.get_tensors()).detach().cpu().numpy()
-    synth_features = extractor(synth_dataset.get_tensors()).detach().cpu().numpy()
+    real_features = extractor(real_dataset.image_to_tensor()).detach().cpu().numpy()
+    synth_features = extractor(synth_dataset.image_to_tensor()).detach().cpu().numpy()
 
     ip_result = ImprovedPrecision(k=6).compute(real_features=real_features, fake_features=synth_features)
     # precision_dataset, _ = ip_result.value

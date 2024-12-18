@@ -16,7 +16,6 @@ class SyntheticDataset:
         self.device = device
         self.dataset_name = dataset_name
         self.n_classes = n_classes
-        self.tensors = self.image_to_tensor()
 
     def __len__(self):
         """Return the length of the dataset."""
@@ -60,10 +59,6 @@ class SyntheticDataset:
     def get_n_classes(self):
         """Return the number of classes."""
         return self.n_classes
-
-    def get_tensors(self):
-        """Return the tensors."""
-        return self.tensors
 
     def get_device(self):
         """Return the device."""

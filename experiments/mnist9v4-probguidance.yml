@@ -5,7 +5,7 @@ seed: 42
 
 dataset:
   name: mnist
-  subset: ["4", "9"]
+  subset: [4, 9] # must be number of the label
   n_classes: 2
 
 classifier:

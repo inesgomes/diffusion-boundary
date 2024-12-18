@@ -2,6 +2,9 @@
 
 import random
 
+import torch
+from torchvision import transforms
+
 
 class SyntheticDataset:
     """Class for custom datasets that includes the synthetic samples and the reference to the real ones."""
@@ -13,6 +16,7 @@ class SyntheticDataset:
         self.device = device
         self.dataset_name = dataset_name
         self.n_classes = n_classes
+        self.tensors = self.image_to_tensor()
 
     def __len__(self):
         """Return the length of the dataset."""
@@ -22,18 +26,24 @@ class SyntheticDataset:
         """Sample n random images."""
         return random.sample(self.images, min(n, len(self.images)))
 
-    def image_as_tensors(self, images):
-        """Run forward pass and return predictions."""
+    def image_to_tensor(self):
+        """Transform the images to tensors."""
         raise NotImplementedError("Subclasses should implement this method")
 
-    def as_tensors(self):
-        """Return the entire dataset as tensors."""
-        return self.image_as_tensors(self.images)
+    def image_to_norm_tensor(self):
+        """Transform the images to normalized tensors."""
+        transform = transforms.Compose(
+            [
+                transforms.Lambda(lambda img: img.convert("RGB")),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+            ]
+        )
+        return torch.stack([transform(img) for img in self.images])
 
-    def sample_as_tensors(self, n):
+    def sample_as_tensor(self, n):
         """Sample n random images and returns them as tensors."""
-        sampled_images = self.sample(n)
-        return self.image_as_tensors(sampled_images), sampled_images
+        raise NotImplementedError("Subclasses should implement this method")
 
     def get_transform(self):
         """Return the transform."""
@@ -50,3 +60,11 @@ class SyntheticDataset:
     def get_n_classes(self):
         """Return the number of classes."""
         return self.n_classes
+
+    def get_tensors(self):
+        """Return the tensors."""
+        return self.tensors
+
+    def get_device(self):
+        """Return the device."""
+        return self.device

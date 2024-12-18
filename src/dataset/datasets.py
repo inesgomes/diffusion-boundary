@@ -15,9 +15,15 @@ class OtherDataset(SyntheticDataset):
         transform = TRANSFORMATIONS[dataset_name]
         super().__init__(dataset_name, n_classes, images, transform, device)
 
-    def image_as_tensors(self, images):
+    def image_to_tensor(self):
         """Return the entire dataset as tensors."""
-        return torch.stack([self.transform(img) for img in images]).to(self.device)
+        return torch.stack([self.transform(img) for img in self.images])
+
+    def sample_as_tensor(self, n):
+        """Sample n random images and returns them as tensors."""
+        sampled_images = self.sample(n)
+        tensor_images = torch.stack([self.transform(img) for img in sampled_images])
+        return tensor_images, sampled_images
 
 
 class TransfomerDataset(SyntheticDataset):
@@ -25,12 +31,17 @@ class TransfomerDataset(SyntheticDataset):
 
     def __init__(self, dataset_name, n_classes, model_name, images, device):
         """Construct the PretrainedTransformer class."""
-        transform = AutoImageProcessor.from_pretrained(model_name, do_convert_rgb=True, input_data_format=None)
+        transform = AutoImageProcessor.from_pretrained(model_name)
         super().__init__(dataset_name, n_classes, images, transform, device)
 
-    def image_as_tensors(self, images):
+    def image_to_tensor(self):
         """Return the logits of the model for the given images."""
-        # TODO: check if this is why MNIST is not working properly
-        # images = [img.convert("RGB") for img in images]
-        tensor_images = self.transform(images=images, return_tensors="pt").to(self.device)
+        # Check the type and size of the first image
+        tensor_images = self.transform(images=self.images, return_tensors="pt")
         return tensor_images["pixel_values"]
+
+    def sample_as_tensor(self, n):
+        """Sample n random images and returns them as tensors."""
+        sampled_images = self.sample(n)
+        tensor_images = self.transform(images=sampled_images, return_tensors="pt")
+        return tensor_images["pixel_values"], sampled_images

@@ -4,22 +4,22 @@ device: cuda:1
 seed: 42
 
 dataset:
-  name: mnist
+  name: cifar10
   n_classes: 10
 
 classifier:
-  name: fxmarty/resnet-tiny-mnist
+  name: ahsanjavid/convnext-tiny-finetuned-cifar10
   lib: transformers
 
 diffusion:
-  type: ddpm # pndm, ddpm, ddim
-  name: 1aurent/ddpm-mnist
   pipeline: guidance
+  type: pndm # pndm, ddpm, ddim
+  name: google/ddpm-cifar10-32
   args:
     guidance: entropy
-    num-inference-steps: 50
+    num-inference-steps: 100
     batch-size: 10
-    alpha: 0.5
+    alpha: 0.2
 
 evaluation:
-  viz-sample-size: 10
+  viz-sample-size: 5

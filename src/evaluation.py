@@ -72,8 +72,10 @@ def create_image_grid(images, n_columns=10):
 def sample_synthetic_images(synth_dataset, sample_size, classifier, subset_labels=None):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
     # sample images for visualization
-    sampled_tensors, sampled_images = synth_dataset.sample_as_tensors(sample_size)
+    sampled_tensors, sampled_images = synth_dataset.sample_as_tensor(sample_size)
+
     # and probabilities if a classifier is provided
+    sampled_tensors = sampled_tensors.to(synth_dataset.get_device())
     sampled_probs = classifier.predict(sampled_tensors) if classifier else None
 
     # log the sample grid
@@ -112,27 +114,25 @@ def label_synthetic_images(labels, n_classes, probabilities):
     }
 
 
-def calculate_synthetic_metrics(real_dataset, synth_dataset, device):
+def calculate_synthetic_metrics(real_dataset, synth_dataset):
     """Calculate synthetic validation metrics from pymdma library.
 
     TODO: missing tunning the k values for the metrics.
     """
     # extract features to compute quality metrics
-    extractor = ExtractorFactory.model_from_name(name="dino_vits8").to(device)
-    real_features = extractor(real_dataset.as_tensors()).detach().cpu().numpy()
-    synth_features = extractor(synth_dataset.as_tensors()).detach().cpu().numpy()
+    extractor = ExtractorFactory.model_from_name(name="dino_vits8")
+    real_features = extractor(real_dataset.get_tensors()).detach().cpu().numpy()
+    synth_features = extractor(synth_dataset.get_tensors()).detach().cpu().numpy()
 
-    # Improved Precision and Improved Recall
     ip_result = ImprovedPrecision(k=6).compute(real_features=real_features, fake_features=synth_features)
-    ir_result = ImprovedRecall(k=6).compute(real_features=real_features, fake_features=synth_features)
     # precision_dataset, _ = ip_result.value
+
+    ir_result = ImprovedRecall(k=6).compute(real_features=real_features, fake_features=synth_features)
     # recall_dataset, _ = ir_result.value
 
-    # Density
     density_result = Density(k=6).compute(real_features=real_features, fake_features=synth_features)
     # density_dataset, _ = density_result.value
 
-    # Coverage
     coverage_result = Coverage(k=6).compute(real_features=real_features, fake_features=synth_features)
     # coverage_dataset, _ = coverage_result.value
 
@@ -149,13 +149,13 @@ def calculate_synthetic_metrics(real_dataset, synth_dataset, device):
     return results_dict, fig
 
 
-def calculate_fid_metric(real_dataset, synth_dataset, device):
+def calculate_fid_metric(real_dataset, synth_dataset):
     """Calculate the Frechet Inception Distance (FID) between two datasets using the implementation from pymdma library."""
-    extractor = ExtractorFactory.model_from_name(name="inception_fid").to(device)
-    real_features = extractor(real_dataset.as_tensors()).detach().cpu().numpy()
-    synth_features = extractor(synth_dataset.as_tensors()).detach().cpu().numpy()
+    extractor = ExtractorFactory.model_from_name(name="inception_fid")
 
-    # Frechet Distance
+    real_features = extractor(real_dataset.image_to_norm_tensor()).detach().cpu().numpy()
+    synth_features = extractor(synth_dataset.image_to_norm_tensor()).detach().cpu().numpy()
+
     fid_result = FrechetDistance().compute(real_features=real_features, fake_features=synth_features)
 
     return fid_result.value[0]

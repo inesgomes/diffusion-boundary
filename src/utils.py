@@ -18,6 +18,7 @@ def generate_run_id():
 def generate_group_name(configuration):
     """Generate a unique group name based on the configuration."""
     subset = configuration["dataset"].get("subset")
+    subset = list(map(str, subset))
     dataset_name = f"{configuration['dataset']['name']}{'v'.join(subset) if subset else ''}"
     return f"{dataset_name}_{configuration['diffusion']['pipeline']}"
 

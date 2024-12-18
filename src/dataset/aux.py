@@ -5,7 +5,7 @@ Returns:
     _type_: _description_ dataset
 """
 
-from itertools import islice
+import random
 
 from datasets import load_dataset
 from torchvision import transforms
@@ -15,9 +15,10 @@ TRANSFORMATIONS = {
         [
             transforms.ToTensor(),
             transforms.Normalize(
-                mean=(0.5, 0.5, 0.5),
-                std=(0.5, 0.5, 0.5),
-                # mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010) # CIFAR10 mean and std
+                # mean=(0.5, 0.5, 0.5),
+                # std=(0.5, 0.5, 0.5),
+                mean=(0.4914, 0.4822, 0.4465),
+                std=(0.2023, 0.1994, 0.2010),  # CIFAR10 mean and std
             ),
         ]
     ),
@@ -36,14 +37,14 @@ LABELS = {
 
 
 def get_tst_dataset(dataset_name, subset, n_samples):
-    """Get a dataset."""
+    """Get a dataset. Needs to load the full dataset into memory (may be a drawback for large datasets)."""
     # get a dataset from huggingface
-    samples = load_dataset(dataset_name, split="test", streaming=True)
+    samples = load_dataset(dataset_name, split="test")
     # select only the relevant labels, if that is required
     if subset is not None:
-        samples = samples.filter(lambda example: example["label"] in subset)
+        samples = samples.filter(lambda x: x["label"] in subset)
     # select number of samples
-    # TODO fix this error -> we are not giving images as PIL (i think) ?
-    return list(islice(samples, n_samples))
-    # to right format
-    # return [Image.open(path) for path in selected_samples]
+    dataset_subset = samples.select(random.sample(range(len(samples)), n_samples))
+    # img vs image depending on the dataset
+    key = dataset_subset.column_names[0]
+    return dataset_subset[key]

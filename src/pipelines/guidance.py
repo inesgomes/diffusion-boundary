@@ -27,8 +27,8 @@ class ClassifierGuidance(DiffusionPipeline):
 
         self.register_modules(unet=unet, scheduler=scheduler)
 
-    def transform_images(self, images):
-        """Transform the images to the correct format for visualization."""
+    def tensor_to_numpy(self, images):
+        """Transform the tensors to numpy."""
         images = (images / 2 + 0.5).clamp(0, 1)
         images = images.cpu().permute(0, 2, 3, 1).detach().numpy()
         return images
@@ -140,7 +140,7 @@ class ClassifierGuidance(DiffusionPipeline):
             images = self.scheduler.step(noise_prediction, t, images).prev_sample
 
         # deliver the synthetic images
-        images = self.transform_images(images)
+        images = self.tensor_to_numpy(images)
         if output_type == "pil":
             images = self.numpy_to_pil(images)
         if not return_dict:

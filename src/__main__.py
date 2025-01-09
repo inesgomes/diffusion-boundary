@@ -129,21 +129,21 @@ def main(configuration):
 
     # EVALUATION
 
+    # FID score (calculated seperatly because it needs a different feature extractor)
+    fid_value = calculate_fid_metric(real_dataset, synth_dataset)
+    wandb.log({"FID_score": fid_value})
+
+    # quality metrics (Improved precision, Improved Recall, Density and Coverage)
+    metrics, viz = calculate_synthetic_metrics(real_dataset, synth_dataset)
+    wandb.log(metrics)
+    wandb.log({"umap": wandb.Image(viz)})
+
     # grid and probs for sampled images
     grid, results = sample_synthetic_images(
         synth_dataset, configuration["evaluation"]["viz-sample-size"], classifier, configuration["dataset"]["subset"]
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
     wandb.log({"sample_results": json.dumps(results, indent=4)})
-
-    # quality metrics (Improived precision, Improved Recall, Density and Coverage)
-    metrics, viz = calculate_synthetic_metrics(real_dataset, synth_dataset)
-    wandb.log(metrics)
-    wandb.log({"umap": wandb.Image(viz)})
-
-    # FID score (needs a different feature extractor)
-    fid_value = calculate_fid_metric(real_dataset, synth_dataset)
-    wandb.log({"FID_score": fid_value})
 
     # finish wandb
     wandb.finish()

@@ -1,3 +1,4 @@
+# NOT WORKING: diffusion not working because it is trained for 10 classes intead of 2 classes
 project: 20241121_diffusion
 
 device: cuda:1

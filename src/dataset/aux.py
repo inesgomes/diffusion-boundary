@@ -45,6 +45,7 @@ def get_tst_dataset(dataset_name, subset, n_samples):
         samples = samples.filter(lambda x: x["label"] in subset)
     # select number of samples
     dataset_subset = samples.select(random.sample(range(len(samples)), n_samples))
-    # img vs image depending on the dataset
+    # img or image depending on the dataset
     key = dataset_subset.column_names[0]
+    # pil images
     return dataset_subset[key]

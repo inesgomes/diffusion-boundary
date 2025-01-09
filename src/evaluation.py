@@ -72,8 +72,9 @@ def create_image_grid(images, n_columns=10):
 def sample_synthetic_images(synth_dataset, sample_size, classifier, subset_labels=None):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
     # sample images for visualization
-    sampled_tensors, sampled_images = synth_dataset.sample_as_tensor(sample_size)
-
+    # temporary fix for MNIST dataset
+    convert_rgb = synth_dataset.get_dataset_name() != "mnist"
+    sampled_tensors, sampled_images = synth_dataset.sample_to_tensor(sample_size, convert_rgb)
     # and probabilities if a classifier is provided
     sampled_tensors = sampled_tensors.to(synth_dataset.get_device())
     sampled_probs = classifier.predict(sampled_tensors) if classifier else None
@@ -121,8 +122,8 @@ def calculate_synthetic_metrics(real_dataset, synth_dataset):
     """
     # extract features to compute quality metrics
     extractor = ExtractorFactory.model_from_name(name="dino_vits8")
-    real_features = extractor(real_dataset.image_to_tensor()).detach().cpu().numpy()
-    synth_features = extractor(synth_dataset.image_to_tensor()).detach().cpu().numpy()
+    real_features = extractor(real_dataset.pil_to_tensor()).detach().cpu().numpy()
+    synth_features = extractor(synth_dataset.pil_to_tensor()).detach().cpu().numpy()
 
     ip_result = ImprovedPrecision(k=6).compute(real_features=real_features, fake_features=synth_features)
     # precision_dataset, _ = ip_result.value
@@ -152,9 +153,8 @@ def calculate_synthetic_metrics(real_dataset, synth_dataset):
 def calculate_fid_metric(real_dataset, synth_dataset):
     """Calculate the Frechet Inception Distance (FID) between two datasets using the implementation from pymdma library."""
     extractor = ExtractorFactory.model_from_name(name="inception_fid")
-
-    real_features = extractor(real_dataset.image_to_norm_tensor()).detach().cpu().numpy()
-    synth_features = extractor(synth_dataset.image_to_norm_tensor()).detach().cpu().numpy()
+    real_features = extractor(real_dataset.pil_to_norm_tensor()).detach().cpu().numpy()
+    synth_features = extractor(synth_dataset.pil_to_norm_tensor()).detach().cpu().numpy()
 
     fid_result = FrechetDistance().compute(real_features=real_features, fake_features=synth_features)
 

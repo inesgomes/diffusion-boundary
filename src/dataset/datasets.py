@@ -15,14 +15,17 @@ class OtherDataset(SyntheticDataset):
         transform = TRANSFORMATIONS[dataset_name]
         super().__init__(dataset_name, n_classes, images, transform, device)
 
-    def image_to_tensor(self):
+    def pil_to_tensor(self, convert_rgb=True):
         """Return the entire dataset as tensors."""
-        return torch.stack([self.transform(img) for img in self.images])
+        tensor_images = torch.stack([self.transform(img.convert("RGB") if convert_rgb else img) for img in self.images])
+        return tensor_images
 
-    def sample_as_tensor(self, n):
+    def sample_to_tensor(self, n, convert_rgb=True):
         """Sample n random images and returns them as tensors."""
         sampled_images = self.sample(n)
-        tensor_images = torch.stack([self.transform(img) for img in sampled_images])
+        tensor_images = torch.stack(
+            [self.transform(img.convert("RGB") if convert_rgb else img) for img in sampled_images]
+        )
         return tensor_images, sampled_images
 
 
@@ -34,14 +37,15 @@ class TransfomerDataset(SyntheticDataset):
         transform = AutoImageProcessor.from_pretrained(model_name)
         super().__init__(dataset_name, n_classes, images, transform, device)
 
-    def image_to_tensor(self):
+    def pil_to_tensor(self, convert_rgb=True):
         """Return the logits of the model for the given images."""
-        # Check the type and size of the first image
-        tensor_images = self.transform(images=self.images, return_tensors="pt")
+        images = [img.convert("RGB") for img in self.images] if convert_rgb else self.images
+        tensor_images = self.transform(images=images, return_tensors="pt")
         return tensor_images["pixel_values"]
 
-    def sample_as_tensor(self, n):
+    def sample_to_tensor(self, n, convert_rgb=True):
         """Sample n random images and returns them as tensors."""
         sampled_images = self.sample(n)
-        tensor_images = self.transform(images=sampled_images, return_tensors="pt")
+        images = [img.convert("RGB") for img in sampled_images] if convert_rgb else sampled_images
+        tensor_images = self.transform(images=images, return_tensors="pt")
         return tensor_images["pixel_values"], sampled_images

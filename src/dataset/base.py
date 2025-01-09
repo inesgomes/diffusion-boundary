@@ -11,7 +11,7 @@ class SyntheticDataset:
 
     def __init__(self, dataset_name, n_classes, images, transform, device="cpu"):
         """Construct the SyntheticDataset class."""
-        self.images = images
+        self.images = images  # make sure this is a numpy array
         self.transform = transform
         self.device = device
         self.dataset_name = dataset_name
@@ -25,11 +25,11 @@ class SyntheticDataset:
         """Sample n random images."""
         return random.sample(self.images, min(n, len(self.images)))
 
-    def image_to_tensor(self):
+    def pil_to_tensor(self, convert_rgb):
         """Transform the images to tensors."""
         raise NotImplementedError("Subclasses should implement this method")
 
-    def image_to_norm_tensor(self):
+    def pil_to_norm_tensor(self):
         """Transform the images to normalized tensors."""
         transform = transforms.Compose(
             [
@@ -40,7 +40,7 @@ class SyntheticDataset:
         )
         return torch.stack([transform(img) for img in self.images])
 
-    def sample_as_tensor(self, n):
+    def sample_to_tensor(self, n, convert_rgb):
         """Sample n random images and returns them as tensors."""
         raise NotImplementedError("Subclasses should implement this method")
 

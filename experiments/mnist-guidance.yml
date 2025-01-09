@@ -1,3 +1,4 @@
+# visualization not working due to errors in the classifier preprocessor
 project: 20241121_diffusion
 
 device: cuda:1

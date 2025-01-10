@@ -2,20 +2,23 @@
 
 import random
 
-import torch
-from torchvision import transforms
+from torch.utils.data import Dataset
+
+from .aux import TRANSFORMATIONS
 
 
-class SyntheticDataset:
+class SyntheticDataset(Dataset):
     """Class for custom datasets that includes the synthetic samples and the reference to the real ones."""
 
-    def __init__(self, dataset_name, n_classes, images, transform, device="cpu"):
+    def __init__(self, dataset_name, n_classes, images, transform):
         """Construct the SyntheticDataset class."""
-        self.images = images  # make sure this is a numpy array
+        self.images = images  # TODO: make sure this is a numpy array
         self.transform = transform
-        self.device = device
+        self.transform_norm = TRANSFORMATIONS["norm"]
         self.dataset_name = dataset_name
         self.n_classes = n_classes
+        self.use_default_transformation = True
+        self.use_convert_rgb = False
 
     def __len__(self):
         """Return the length of the dataset."""
@@ -25,24 +28,17 @@ class SyntheticDataset:
         """Sample n random images."""
         return random.sample(self.images, min(n, len(self.images)))
 
-    def pil_to_tensor(self, convert_rgb):
-        """Transform the images to tensors."""
-        raise NotImplementedError("Subclasses should implement this method")
-
-    def pil_to_norm_tensor(self):
-        """Transform the images to normalized tensors."""
-        transform = transforms.Compose(
-            [
-                transforms.Lambda(lambda img: img.convert("RGB")),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
-            ]
-        )
-        return torch.stack([transform(img) for img in self.images])
-
-    def sample_to_tensor(self, n, convert_rgb):
+    def sample_to_tensor(self, n):
         """Sample n random images and returns them as tensors."""
         raise NotImplementedError("Subclasses should implement this method")
+
+    def set_convert_rgb(self, use_convert_rgb):
+        """Set the convert_rgb flag."""
+        self.use_convert_rgb = use_convert_rgb
+
+    def set_default_transformation(self, use_default_transformation):
+        """Set the default_transformation flag."""
+        self.use_default_transformation = use_default_transformation
 
     def get_transform(self):
         """Return the transform."""
@@ -59,7 +55,3 @@ class SyntheticDataset:
     def get_n_classes(self):
         """Return the number of classes."""
         return self.n_classes
-
-    def get_device(self):
-        """Return the device."""
-        return self.device

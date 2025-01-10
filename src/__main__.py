@@ -2,12 +2,14 @@
 
 import argparse
 import json
+import math
 import os
 
 import torch
 import wandb
 from diffusers import DDIMPipeline, DDPMPipeline, DiffusionPipeline, PNDMPipeline
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 from src.classifier.factory import ClassifierFactory
 from src.dataset.aux import get_tst_dataset
@@ -94,13 +96,22 @@ def main(configuration):
     # get arguments for the pipeline
     args = create_arguments(diffusion_settings["pipeline"], classifier, diffusion_settings)
 
-    # generate images
-    images = pipe(
-        generator=torch.Generator().manual_seed(configuration["seed"]),
-        num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
-        batch_size=diffusion_settings["args"]["batch-size"],
-        **args,
-    ).images
+    # generate images in batches
+    num_batches = math.ceil(configuration["evaluation"]["num-images"] / diffusion_settings["args"]["batch-size"])
+    images = []
+    for _ in tqdm(range(num_batches), desc="Generating images"):
+        batch_size_to_use = min(
+            diffusion_settings["args"]["batch-size"], configuration["evaluation"]["num-images"] - len(images)
+        )
+        batch_images = pipe(
+            generator=torch.Generator().manual_seed(configuration["seed"]),
+            num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
+            batch_size=batch_size_to_use,
+            **args,
+        ).images
+        images.extend(batch_images)
+
+    print(f"Generated {len(images)} images")
 
     # create synthetic dataset
     synth_dataset = DatasetFactory.dataset_from_lib(
@@ -116,7 +127,7 @@ def main(configuration):
     real_images = get_tst_dataset(
         configuration["dataset"]["name"],
         configuration["dataset"]["subset"],
-        diffusion_settings["args"]["batch-size"],
+        configuration["evaluation"]["num-images"],
     )
     real_dataset = DatasetFactory.dataset_from_lib(
         configuration["classifier"]["lib"],
@@ -129,14 +140,18 @@ def main(configuration):
 
     # EVALUATION
 
-    # FID score (calculated seperatly because it needs a different feature extractor)
-    fid_value = calculate_fid_metric(real_dataset, synth_dataset)
-    wandb.log({"FID_score": fid_value})
-
     # quality metrics (Improved precision, Improved Recall, Density and Coverage)
-    metrics, viz = calculate_synthetic_metrics(real_dataset, synth_dataset)
+    metrics, viz = calculate_synthetic_metrics(
+        real_dataset, synth_dataset, configuration["device"], diffusion_settings["args"]["batch-size"]
+    )
     wandb.log(metrics)
     wandb.log({"umap": wandb.Image(viz)})
+
+    # FID score (calculated seperatly because it needs a different feature extractor)
+    fid_value = calculate_fid_metric(
+        real_dataset, synth_dataset, configuration["device"], diffusion_settings["args"]["batch-size"]
+    )
+    wandb.log({"FID_score": fid_value})
 
     # grid and probs for sampled images
     grid, results = sample_synthetic_images(
@@ -152,6 +167,10 @@ def main(configuration):
 if __name__ == "__main__":
     # load environment variables
     load_dotenv()
+
+    # enable torch32 for faster inference
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
 
     # get arguments
     parser = argparse.ArgumentParser()

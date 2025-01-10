@@ -62,6 +62,32 @@ def create_arguments(pipeline_name, classifier, diffusion_settings):
     return {}
 
 
+def generate_images(diffusion_settings, classifier, num_images, batch_size, seed, device):
+    """Generate images using the diffusion pipeline described in the config file."""
+    # get diffusion pipeline
+    pipe = create_pipeline(
+        diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
+    )
+    # get arguments for the pipeline
+    args = create_arguments(diffusion_settings["pipeline"], classifier, diffusion_settings)
+
+    # generate images in batches
+    num_batches = math.ceil(num_images / batch_size)
+    images = []
+    for _ in tqdm(range(num_batches), desc="Generating images"):
+        batch_size_to_use = min(batch_size, num_images - len(images))
+        batch_images = pipe(
+            generator=torch.Generator().manual_seed(seed),
+            num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
+            batch_size=batch_size_to_use,
+            **args,
+        ).images
+        images.extend(batch_images)
+
+    print(f"Generated {len(images)} images")
+    return images
+
+
 def main(configuration):
     """Generate a sample image."""
     diffusion_settings = configuration["diffusion"]
@@ -77,6 +103,7 @@ def main(configuration):
             "seed": configuration["seed"],
             "diffusion": diffusion_settings,
             "classsifier": configuration["classifier"]["name"],
+            "log_images": configuration["log"]["images"],
         },
     )
 
@@ -89,29 +116,21 @@ def main(configuration):
             configuration["device"],
         )
 
-    # get diffusion pipeline
-    pipe = create_pipeline(
-        diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], configuration["device"]
+    # generate images
+    images = generate_images(
+        diffusion_settings,
+        classifier,
+        configuration["evaluation"]["num-images"],
+        configuration["batch-size"],
+        configuration["seed"],
+        configuration["device"],
     )
-    # get arguments for the pipeline
-    args = create_arguments(diffusion_settings["pipeline"], classifier, diffusion_settings)
-
-    # generate images in batches
-    num_batches = math.ceil(configuration["evaluation"]["num-images"] / diffusion_settings["args"]["batch-size"])
-    images = []
-    for _ in tqdm(range(num_batches), desc="Generating images"):
-        batch_size_to_use = min(
-            diffusion_settings["args"]["batch-size"], configuration["evaluation"]["num-images"] - len(images)
-        )
-        batch_images = pipe(
-            generator=torch.Generator().manual_seed(configuration["seed"]),
-            num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
-            batch_size=batch_size_to_use,
-            **args,
-        ).images
-        images.extend(batch_images)
-
-    print(f"Generated {len(images)} images")
+    # save if needed
+    if configuration["log"]["images"]:
+        path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id + "/images.pkl"
+        with open(path, "wb") as f:
+            torch.save(images, f)
+            print("Images saved at", path)
 
     # create synthetic dataset
     synth_dataset = DatasetFactory.dataset_from_lib(
@@ -120,7 +139,6 @@ def main(configuration):
         configuration["dataset"]["name"],
         configuration["dataset"]["n_classes"],
         images,
-        configuration["device"],
     )
 
     # create real dataset with same configs for evaluation purposes
@@ -135,29 +153,29 @@ def main(configuration):
         configuration["dataset"]["name"],
         configuration["dataset"]["n_classes"],
         real_images,
-        configuration["device"],
     )
 
     # EVALUATION
 
     # quality metrics (Improved precision, Improved Recall, Density and Coverage)
     metrics, viz = calculate_synthetic_metrics(
-        real_dataset, synth_dataset, configuration["device"], diffusion_settings["args"]["batch-size"]
+        real_dataset, synth_dataset, configuration["device"], configuration["batch-size"]
     )
     wandb.log(metrics)
     wandb.log({"umap": wandb.Image(viz)})
 
     # FID score (calculated seperatly because it needs a different feature extractor)
-    fid_value = calculate_fid_metric(
-        real_dataset, synth_dataset, configuration["device"], diffusion_settings["args"]["batch-size"]
-    )
+    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["device"], configuration["batch-size"])
     wandb.log({"FID_score": fid_value})
 
-    # grid and probs for sampled images
+    # TODO: new distribution visualizations
+
+    # sample: grid and probs
     grid, results = sample_synthetic_images(
-        synth_dataset, configuration["evaluation"]["viz-sample-size"], classifier, configuration["dataset"]["subset"]
+        synth_dataset, configuration["evaluation"]["viz-sample-size"], classifier, configuration["device"]
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
+    # TODO: change for csv
     wandb.log({"sample_results": json.dumps(results, indent=4)})
 
     # finish wandb

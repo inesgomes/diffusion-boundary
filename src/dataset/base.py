@@ -12,7 +12,7 @@ class SyntheticDataset(Dataset):
 
     def __init__(self, dataset_name, n_classes, images, transform):
         """Construct the SyntheticDataset class."""
-        self.images = images  # TODO: make sure this is a numpy array
+        self.images = images
         self.transform = transform
         self.transform_norm = TRANSFORMATIONS["norm"]
         self.dataset_name = dataset_name

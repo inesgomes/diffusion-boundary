@@ -12,6 +12,12 @@ import torch
 import wandb
 from diffusers import DiffusionPipeline, ImagePipelineOutput
 
+from src.classifier.metrics import (
+    compute_confusion_distance,
+    compute_entropy,
+    compute_norm_entropy,
+)
+
 
 class ClassifierGuidance(DiffusionPipeline):
     """Dummy pipeline to test diffusion models with a classifier."""
@@ -33,50 +39,28 @@ class ClassifierGuidance(DiffusionPipeline):
         images = images.cpu().permute(0, 2, 3, 1).detach().numpy()
         return images
 
-    def compute_entropy(self, classifier, images):
-        """Calculate the entropy of the classifier output."""
-        # get classifier output
-        probs = classifier.predict(images)
-        entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)
-        return entropy
-
-    def entropy_guidance(self, classifier, images):
-        """Calculate the gradient of the entropy with respect to the images."""
+    def calculate_gradient(self, classifier, images, guidance_type):
+        """Calculate the gradient of the selected metric with respect to the images."""
         # Enable gradients for the pixel images
         images = images.clone().detach().requires_grad_(True)
-
-        # Calculate entropy (scalar per image)
-        entropy = self.compute_entropy(classifier, images).mean()
-        wandb.log({"mean-entropy": entropy})
-
-        # Calculate gradient of the entropy with respect to the images
-        entropy_grad = torch.autograd.grad(entropy, images, create_graph=True)[0]
-        wandb.log({"loss-entropy": entropy_grad})
-
-        return entropy_grad
-
-    def compute_cd(self, classifier, images):
-        """Calculate the confusion distance of the classifier output."""
-        # get classifier output
+        # compute the probabilities
         probs = classifier.predict(images)
-        # compute confusion distance (CD) = |0.5 - probs|
-        cd = (0.5 - probs).abs()
-        return cd
 
-    def cd_guidance(self, classifier, images):
-        """Calculate the gradient of the entropy with respect to the images."""
-        # Enable gradients for the pixel images
-        images = images.clone().detach().requires_grad_(True)
+        # compute the metric
+        metric = 0
+        if guidance_type == "entropy":
+            metric = compute_entropy(probs).mean()
+        elif guidance_type == "norm_entropy":
+            metric = compute_norm_entropy(probs).mean()
+        elif guidance_type == "acd":
+            metric = compute_confusion_distance(probs).mean()
+        else:
+            raise ValueError(f"Guidance type {guidance_type} not supported.")
 
-        # Calculate average confusion distance (scalar per image)
-        acd = self.compute_cd(classifier, images).mean()
-        wandb.log({"acd": acd})
+        # compute teh gradient
+        grad = torch.autograd.grad(metric, images, create_graph=True)[0]
 
-        # Calculate gradient of the confusion distance with respect to the images
-        acd_grad = torch.autograd.grad(acd, images, create_graph=True)[0]
-        wandb.log({"loss-acd": acd_grad})
-
-        return acd_grad
+        return metric, grad
 
     def __call__(
         self,
@@ -100,9 +84,6 @@ class ClassifierGuidance(DiffusionPipeline):
         classifier = kwargs.get("classifier", None)
         alpha = kwargs.get("alpha", None)
         guidance_type = kwargs.get("guidance_type", None)
-
-        # TODO: what is eta -> paper from imbalanced data defined eta=0
-        # eta = kwargs.get("eta", None)
 
         # Sample gaussian noise to begin loop
         images = torch.randn(
@@ -128,16 +109,16 @@ class ClassifierGuidance(DiffusionPipeline):
             # 2. compute guidance
 
             # Get gradient
-            grad = 0
-            if guidance_type == "entropy":
-                grad = self.entropy_guidance(classifier, images_0)
-            if guidance_type == "acd":
-                grad = self.cd_guidance(classifier, images_0)
-
+            # TODO: implement a new hyperparameter to control the step size
+            metric, grad = self.calculate_gradient(classifier, images_0, guidance_type)
             images = images.detach() + alpha * grad
 
             # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
             images = self.scheduler.step(noise_prediction, t, images).prev_sample
+
+            # log
+            wandb.log({f"mean-{guidance_type}": metric})
+            wandb.log({f"loss-{guidance_type}": grad})
 
         # deliver the synthetic images
         images = self.tensor_to_numpy(images)

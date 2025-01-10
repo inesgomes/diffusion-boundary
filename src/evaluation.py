@@ -5,6 +5,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from diffusers.utils import make_image_grid
 from PIL import Image
 from pymdma.image.measures.synthesis_val import (
     Coverage,
@@ -48,39 +49,14 @@ def create_probability_grid(images, probabilities, n_columns=10):
     return grid_image
 
 
-def create_image_grid(images, n_columns=10):
-    """Create a grid of images with a fixed number of columns."""
-    # Get the size and mode from the first image (assuming all images have the same size and mode)
-    img_size = images[0].size
-    img_mode = images[0].mode
-
-    # Calculate the number of rows needed for the grid
-    n_images = len(images)
-    n_rows = math.ceil(n_images / n_columns)
-
-    # Create a blank canvas for the grid (black background)
-    grid_image = Image.new(img_mode, (n_columns * img_size[0], n_rows * img_size[1]), color="black")
-
-    # Paste each image into the grid at the appropriate location
-    for idx, img in enumerate(images):
-        row = idx // n_columns  # Calculate row index
-        col = idx % n_columns  # Calculate column index
-        x_offset = col * img_size[0]
-        y_offset = row * img_size[1]
-        grid_image.paste(img, (x_offset, y_offset))
-
-    return grid_image
-
-
-def sample_synthetic_images(synth_dataset, sample_size, classifier, subset_labels=None):
+def sample_synthetic_images(synth_dataset, sample_size, classifier, device):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
     # sample images for visualization
     # temporary fix for MNIST dataset
     synth_dataset.set_convert_rgb(synth_dataset.get_dataset_name() != "mnist")
     sampled_tensors, sampled_images = synth_dataset.sample_to_tensor(sample_size)
     # and probabilities if a classifier is provided
-    sampled_tensors = sampled_tensors.to(synth_dataset.get_device())
-    sampled_probs = classifier.predict(sampled_tensors) if classifier else None
+    sampled_probs = classifier.predict(sampled_tensors.to(device)) if classifier else None
 
     # log the sample grid
     if classifier and synth_dataset.get_n_classes() == 2:
@@ -88,17 +64,17 @@ def sample_synthetic_images(synth_dataset, sample_size, classifier, subset_label
         grid = create_probability_grid(sampled_images, sampled_probs)
     else:
         # generic grid
-        grid = create_image_grid(sampled_images)
+        n_cols = 10
+        n_rows = math.ceil(len(sampled_images) / n_cols)
+        grid = make_image_grid(sampled_images, rows=n_rows, cols=n_cols)
         # TODO implement a new multi-class classification visualization
 
     results = None
     if classifier:
-        # for the sampled images, provide the top probabilities and labels (textual information)
-        labels = subset_labels if subset_labels is not None else LABELS[synth_dataset.get_dataset_name()]
+        # for the sampled images, provide the probabilities in a dataframe format
+        labels = LABELS[synth_dataset.get_dataset_name()]
         results = label_synthetic_images(labels, synth_dataset.get_n_classes(), sampled_probs)
-
-        # for the whole dataset
-        # TODO other synthetic images evaluation (using the classifier) - e.g. distributions
+        # TODO to save as csv
 
     return grid, results
 

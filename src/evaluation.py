@@ -56,7 +56,11 @@ def create_2D_probability_grid(images, probabilities, n_cols):
 
 
 def create_metric_grid(images, probs, ordered_results, threshold=0.8, n_cols=10):
-    """Create a grid of images with probabilities and labels. We assume that the ordered_results dataframe is sorted by the metric value. The threshold is used to determine the number of classes to display, and can be updated as needed."""
+    """Create a grid of images with probabilities and labels.
+
+    We assume that the ordered_results dataframe is sorted by the metric value.
+    The threshold is used to determine the number of classes to display, and can be updated as needed.
+    """
     # start label computation...
 
     # all columns except the first (image_id) and last (metric)
@@ -104,7 +108,11 @@ def create_metric_grid(images, probs, ordered_results, threshold=0.8, n_cols=10)
 
 
 def curate_results(probs, dataset_name, metric):
-    """Curate the results in a dataframe format, where the first column is the image_id and the last is the value for the guidance metric. All the columns in between are the classes. The dataframe is sorted by the metric."""
+    """Curate the results in a dataframe format.
+
+    The first column is the image_id and the last is the value for the guidance metric.
+    All the columns in between are the classes. The dataframe is sorted by the metric.
+    """
     # transform the probabilities into a dataframe format
     labels = LABELS[dataset_name]
     results = pd.DataFrame(probs.detach().cpu().numpy(), columns=labels).reset_index()

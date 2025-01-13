@@ -23,4 +23,6 @@ diffusion:
     alpha: 0.2
 
 evaluation:
-  viz-sample-size: 5
+  num-images: 20
+  viz-sample-size: 20
+  certainty-threshold: 0.85

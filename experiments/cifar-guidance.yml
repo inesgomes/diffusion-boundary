@@ -28,3 +28,4 @@ diffusion:
 evaluation:
   num-images: 20
   viz-sample-size: 20
+  certainty-threshold: 0.8 # this may be automatically computed in some way? (e.g. 1 - 1/n_classes)

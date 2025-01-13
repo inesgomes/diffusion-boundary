@@ -12,11 +12,7 @@ import torch
 import wandb
 from diffusers import DiffusionPipeline, ImagePipelineOutput
 
-from src.classifier.metrics import (
-    compute_confusion_distance,
-    compute_entropy,
-    compute_norm_entropy,
-)
+from src.classifier.metrics import compute_metric
 
 
 class ClassifierGuidance(DiffusionPipeline):
@@ -47,15 +43,7 @@ class ClassifierGuidance(DiffusionPipeline):
         probs = classifier.predict(images)
 
         # compute the metric
-        metric = 0
-        if guidance_type == "entropy":
-            metric = compute_entropy(probs).mean()
-        elif guidance_type == "norm_entropy":
-            metric = compute_norm_entropy(probs).mean()
-        elif guidance_type == "acd":
-            metric = compute_confusion_distance(probs).mean()
-        else:
-            raise ValueError(f"Guidance type {guidance_type} not supported.")
+        metric = compute_metric(guidance_type, probs).mean()
 
         # compute the gradient
         grad = torch.autograd.grad(metric, images, create_graph=True)[0]

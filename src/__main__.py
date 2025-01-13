@@ -16,7 +16,10 @@ from src.dataset.factory import DatasetFactory
 from src.evaluation import (
     calculate_fid_metric,
     calculate_synthetic_metrics,
-    sample_synthetic_images,
+    prepare_dataset_results,
+    visualize_confusion,
+    visualize_distributions,
+    visualize_sample_synthetic_images,
 )
 from src.utils import generate_group_name, generate_run_id, load_configurations
 
@@ -95,7 +98,7 @@ def main(configuration):
     wandb.init(
         project=configuration["project"],
         group=generate_group_name(configuration),
-        job_type=diffusion_settings["type"],
+        job_type=diffusion_settings["type"],  # TODO: guidance
         entity=os.getenv("ENTITY"),
         name=generate_run_id(),
         config={
@@ -156,25 +159,60 @@ def main(configuration):
 
     # EVALUATION
 
+    # from features
     # quality metrics (Improved precision, Improved Recall, Density and Coverage)
-    metrics, viz = calculate_synthetic_metrics(
-        real_dataset, synth_dataset, configuration["device"], configuration["batch-size"]
+    metrics, features_umap = calculate_synthetic_metrics(
+        real_dataset,
+        synth_dataset,
+        configuration["batch-size"],
+        configuration["device"],
     )
     wandb.log(metrics)
-    wandb.log({"umap": wandb.Image(viz)})
+    wandb.log({"umap": wandb.Image(features_umap)})
 
     # FID score (calculated seperatly because it needs a different feature extractor)
-    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["device"], configuration["batch-size"])
+    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["batch-size"], configuration["device"])
     wandb.log({"FID_score": fid_value})
 
-    # TODO: new distribution visualizations
+    # from probabilities
+    real_dataset_res = prepare_dataset_results(
+        real_dataset,
+        classifier,
+        diffusion_settings["args"]["guidance"],
+        configuration["batch-size"],
+        configuration["device"],
+    )
+    synth_dataset_res = prepare_dataset_results(
+        synth_dataset,
+        classifier,
+        diffusion_settings["args"]["guidance"],
+        configuration["batch-size"],
+        configuration["device"],
+    )
 
-    # sample: grid and probs
-    grid, results = sample_synthetic_images(
+    # distributions (boxplot): metric and classes
+    dist_metric, dist_probs = visualize_distributions(
+        real_dataset_res, synth_dataset_res, diffusion_settings["args"]["guidance"]
+    )
+    wandb.log({f"dist_{diffusion_settings['args']['guidance']}": wandb.Image(dist_metric)})
+    wandb.log({"dist_labels": wandb.Image(dist_probs)})
+
+    # visualize confusion matrix
+    viz_confusion = visualize_confusion(
+        real_dataset_res,
+        synth_dataset_res,
+        diffusion_settings["args"]["guidance"],
+        configuration["evaluation"]["certainty-threshold"],
+    )
+    wandb.log({"confusion_grid": wandb.Image(viz_confusion)})
+
+    # sample: grid of images and respective probs
+    grid, results = visualize_sample_synthetic_images(
         synth_dataset,
         configuration["evaluation"]["viz-sample-size"],
         classifier,
         diffusion_settings["args"]["guidance"],
+        configuration["evaluation"]["certainty-threshold"],
         configuration["device"],
     )
     wandb.log({"sample_grid": wandb.Image(grid)})

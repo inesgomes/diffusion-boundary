@@ -24,4 +24,5 @@ diffusion:
     alpha: 5
 
 evaluation:
-  viz-sample-size: 5
+  num-images: 20
+  viz-sample-size: 20

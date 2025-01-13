@@ -20,4 +20,6 @@ diffusion:
     batch-size: 5
 
 evaluation:
-  viz-sample-size: 50
+  num-images: 20
+  viz-sample-size: 20
+  certainty-threshold: 0.85

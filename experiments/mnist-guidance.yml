@@ -1,4 +1,4 @@
-# visualization not working due to errors in the classifier preprocessor
+# EVALUATION NOT WORKING due to errors in the classifier preprocessor
 project: 20241121_diffusion
 
 device: cuda:1
@@ -23,4 +23,6 @@ diffusion:
     alpha: 0.5
 
 evaluation:
-  viz-sample-size: 10
+  num-images: 20
+  viz-sample-size: 20
+  certainty-threshold: 0.85

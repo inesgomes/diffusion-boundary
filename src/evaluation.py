@@ -1,10 +1,12 @@
 """Evaluation module. Contains methods to evaluate the synthetic images."""
 
 import math
+from itertools import combinations
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import torch
 from diffusers.utils import make_image_grid
 from PIL import Image
@@ -20,11 +22,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from umap import UMAP
 
-from src.classifier.metrics import (
-    compute_confusion_distance,
-    compute_entropy,
-    compute_norm_entropy,
-)
+from src.classifier.metrics import compute_metric
 from src.dataset.aux import LABELS
 
 
@@ -55,7 +53,7 @@ def create_2D_probability_grid(images, probabilities, n_cols):
     return grid_image
 
 
-def create_metric_grid(images, probs, ordered_results, threshold=0.8, n_cols=10):
+def create_metric_grid(images, probs, ordered_results, threshold, n_cols=10):
     """Create a grid of images with probabilities and labels.
 
     We assume that the ordered_results dataframe is sorted by the metric value.
@@ -73,29 +71,29 @@ def create_metric_grid(images, probs, ordered_results, threshold=0.8, n_cols=10)
 
     # mask to identify the relevant indices, and then count the number of relevant probabilities
     mask = cumulative_sum <= threshold
-    top_k = mask.sum(dim=1)
+    top_k = mask.sum(dim=1) + 1
 
     # create label per image
     image_labels = []
     for i in range(num_samples):
         # predicted class
-        label = f"{labels[sorted_indices[i, 0].item()]}: {sorted_probs[i, 0].item():.2f}"
+        label = ""
         # other classes, if ambiguous
-        for j in range(1, top_k[i]):
-            label += f"\n{labels[sorted_indices[i, j].item()]}: {sorted_probs[i, j].item():.2f}"
+        for j in range(top_k[i]):
+            label += f"{labels[sorted_indices[i, j].item()]}: {sorted_probs[i, j].item():.2f}\n"
         image_labels.append([i, label])
     # add labels to the results
     ordered_results = ordered_results.merge(pd.DataFrame(image_labels, columns=["image_id", "label"]), on="image_id")
     # update label with metric value
     ordered_results["label"] = (
-        ordered_results["entropy"].apply(lambda x: f"Entropy: {x:.2f}") + "\n" + ordered_results["label"]
+        ordered_results["entropy"].apply(lambda x: f"Entropy: {x:.2f}\n") + ordered_results["label"]
     )
 
     # start grid creation...
 
     # prepare grid
     n_rows = (num_samples + n_cols - 1) // n_cols
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.5 * n_cols, 1.5 * n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.5 * n_cols, 2 * n_rows))
     axes = axes.flatten()  # Flatten the axes array for easier indexing
 
     # for loop on dataframe
@@ -118,21 +116,16 @@ def curate_results(probs, dataset_name, metric):
     results = pd.DataFrame(probs.detach().cpu().numpy(), columns=labels).reset_index()
     results = results.rename(columns={"index": "image_id"})
 
-    # compute metric per image
-    value = None
-    if metric == "entropy":
-        value = compute_entropy(probs).detach().cpu().numpy()
-    elif metric == "norm_entropy":
-        value = compute_norm_entropy(probs).detach().cpu().numpy()
-    elif metric == "acd":
-        value = compute_confusion_distance(probs).detach().cpu().numpy()
-    results[metric] = value
+    # compute metric per image and add to the dataframe
+    results[metric] = compute_metric(metric, probs).detach().cpu().numpy()
 
     results.sort_values(by=metric, ascending=False, inplace=True)
     return results
 
 
-def sample_synthetic_images(synth_dataset, sample_size, classifier, metric, device, n_cols=10):
+def visualize_sample_synthetic_images(
+    synth_dataset, sample_size, classifier, metric, certainty_threshold, device, n_cols=10
+):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
     # sample images for visualization
     # temporary fix for MNIST dataset
@@ -151,13 +144,153 @@ def sample_synthetic_images(synth_dataset, sample_size, classifier, metric, devi
         if sampled_probs.size(1) == 2:
             grid = create_2D_probability_grid(sampled_images, sampled_probs, n_cols)
         else:
-            # threshold (0.8) may be adjusted
-            grid = create_metric_grid(sampled_images, sampled_probs, results, 0.8, n_cols)
+            grid = create_metric_grid(sampled_images, sampled_probs, results, certainty_threshold, n_cols)
     else:
         # if no classifier provided, display a generic grid
         n_rows = math.ceil(len(sampled_images) / n_cols)
         grid = make_image_grid(sampled_images, rows=n_rows, cols=n_cols)
     return grid, results
+
+
+def prepare_dataset_results(dataset, classifier, metric, batch_size, device):
+    """Prepare the dataset results for visualization. First compute the predictions (in batch), then apply the curate_results function."""
+    # compute dataset predictions
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=6)
+    probs_list = []
+    for batch in tqdm(loader, desc="Compute predictions"):
+        with torch.no_grad():
+            probs_batch = classifier.predict(batch.to(device))
+        probs_list.append(probs_batch.cpu())
+    probs = torch.cat(probs_list, dim=0)
+
+    return curate_results(probs, dataset.get_dataset_name(), metric)
+
+
+def visualize_distributions(real_results, synth_results, metric):
+    """Plot distributions for real and synthetic datasets."""
+    # boxplot real vs synthetic dataset -> metric
+    fig_metric, ax_m = plt.subplots(figsize=(6, 2))
+
+    viz_results = pd.concat([real_results, synth_results], keys=["Real", "Synthetic"]).reset_index()
+    viz_results = viz_results.rename(columns={"level_0": "keys"}).drop(columns=["level_1"])
+
+    sns.boxplot(
+        data=viz_results,
+        x=metric,
+        y="keys",
+        ax=ax_m,
+        orient="h",
+        order=["Real", "Synthetic"],
+        palette=["red", "blue"],
+        gap=0.1,
+        width=0.7,
+        fill=False,
+        fliersize=1,
+    )
+    ax_m.set_title(f"{metric.capitalize()} Distribution | Real vs Synthetic")
+    ax_m.set_xlabel(metric)
+
+    # probs per class
+    labels = viz_results.columns[2:-1]
+    fig_classes, ax_c = plt.subplots(figsize=(6, 2 * len(labels)))
+
+    viz_results_melt = viz_results.melt(id_vars="keys", value_vars=labels, var_name="label", value_name="probability")
+    sns.boxplot(
+        data=viz_results_melt,
+        x="probability",
+        y="label",
+        hue="keys",
+        ax=ax_c,
+        orient="h",
+        hue_order=["Real", "Synthetic"],
+        palette=["red", "blue"],
+        gap=0.1,
+        width=0.5,
+        fill=False,
+        fliersize=1,
+    )
+    ax_c.set_title("Class Probabilities Distribution | Real vs Synthetic")
+
+    return fig_metric, fig_classes
+
+
+def compute_classes_confusion_confusion(results, threshold):
+    """For a given dataset, given the threshold of certainty defined, compute which classes are most likely to be ambiguous."""
+    # given the probs, we cumulatively sum, and then apply the threshold to get the classes list
+
+    # compute the ambiguous classes per image
+    selected_classes = []
+    for _, row in results.iterrows():
+        # sort the probabilities and their corresponding labels in descending order
+        sorted_probs_labels = sorted(zip(row.values, row.index), reverse=True, key=lambda x: x[0])
+        sorted_probs, sorted_labels = zip(*sorted_probs_labels)
+
+        # compute the cumulative sum of the sorted probabilities, and select the classes
+        cumsum = pd.Series(sorted_probs).cumsum()
+        top_k = (cumsum <= threshold).sum() + 1
+        selected = [sorted_labels[i] for i in range(top_k)]
+
+        # transform the list in subsets of 2, e.g. [A, B, C] = [A, B], [A, C], [B, C]; [A] = [A, A]
+        if len(selected) < 2:
+            # Handle cases where there are fewer than 2 elements
+            selected_classes.append([selected[0], selected[0]])
+        else:
+            # Generate all combinations of size 2
+            selected_classes.extend([list(pair) for pair in combinations(selected, 2)])
+
+    # sort pairs to avoid duplicates
+    sorted_pairs = [tuple(sorted(pair, reverse=True)) for pair in selected_classes]
+
+    # with this information, compute the confusion matrix
+    df_pairs = pd.DataFrame(sorted_pairs, columns=["class1", "class2"])
+    df_pairs["count"] = 1
+    df_pairs = df_pairs.groupby(["class1", "class2"], as_index=False)["count"].sum()
+
+    matrix = df_pairs.pivot(index="class1", columns="class2", values="count").fillna(0)
+    return matrix
+
+
+def visualize_confusion(real_results, synth_results, metric, threshold):
+    """Visualize the confusion matrix for the real and synthetic datasets."""
+    # remove irrelevant columns
+    real_results.drop(columns=["image_id", metric], inplace=True)
+    synth_results.drop(columns=["image_id", metric], inplace=True)
+
+    # create subplots and plot the confusion matrixs
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+
+    matrix_real = compute_classes_confusion_confusion(real_results, threshold)
+    matrix_synth = compute_classes_confusion_confusion(synth_results, threshold)
+
+    # equal v_max for both heatmaps
+    v_max = max(matrix_real.values.max(), matrix_synth.values.max())
+
+    mask_real = np.triu(np.ones_like(matrix_real, dtype=bool))
+    np.fill_diagonal(mask_real, False)
+
+    sns.heatmap(
+        matrix_real,
+        ax=axes[0],
+        cmap="Reds",
+        annot=True,
+        fmt="g",
+        mask=mask_real,
+        vmin=0,
+        vmax=v_max,
+        cbar=False,
+        square=True,
+    )
+    axes[0].set_title("Real Dataset")
+
+    mask_synth = np.triu(np.ones_like(matrix_synth, dtype=bool))
+    np.fill_diagonal(mask_synth, False)
+
+    sns.heatmap(
+        matrix_synth, ax=axes[1], cmap="Blues", annot=True, fmt="g", mask=mask_synth, vmin=0, vmax=v_max, square=True
+    )
+    axes[1].set_title("Synthetic Dataset")
+
+    return fig
 
 
 def umap_visualization(real_features, synth_features):
@@ -174,7 +307,7 @@ def umap_visualization(real_features, synth_features):
     return fig
 
 
-def calculate_synthetic_metrics(real_dataset, synth_dataset, device, batch_size=64):
+def calculate_synthetic_metrics(real_dataset, synth_dataset, batch_size, device):
     """Calculate synthetic validation metrics from pymdma library.
 
     TODO: missing tunning the k values for the metrics.
@@ -220,7 +353,7 @@ def calculate_synthetic_metrics(real_dataset, synth_dataset, device, batch_size=
     return results_dict, fig
 
 
-def calculate_fid_metric(real_dataset, synth_dataset, device, batch_size=64):
+def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
     """Calculate the Frechet Inception Distance (FID) between two datasets using the implementation from pymdma library."""
     # inception feature extractor -> used for FID calculation
     extractor = ExtractorFactory.model_from_name(name="inception_fid").to(device)

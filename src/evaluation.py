@@ -4,6 +4,7 @@ import math
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import torch
 from diffusers.utils import make_image_grid
 from PIL import Image
@@ -19,10 +20,15 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from umap import UMAP
 
+from src.classifier.metrics import (
+    compute_confusion_distance,
+    compute_entropy,
+    compute_norm_entropy,
+)
 from src.dataset.aux import LABELS
 
 
-def create_probability_grid(images, probabilities, n_columns=10):
+def create_2D_probability_grid(images, probabilities, n_cols):
     """Create a grid of images with probabilities.
 
     The images are grouped into bins acording to their probabilities. We are assuming that the probabilities are in the same order as the images.
@@ -32,14 +38,14 @@ def create_probability_grid(images, probabilities, n_columns=10):
     img_mode = images[0].mode
 
     # Group images into bins based on their probabilities
-    bins = [[] for _ in range(n_columns)]
+    bins = [[] for _ in range(n_cols)]
     for img, prob in zip(images, probabilities):
-        bin_index = min(math.floor(prob * n_columns), n_columns - 1)
+        bin_index = min(math.floor(prob * n_cols), n_cols - 1)
         bins[bin_index].append(img)
 
     # Prepare the grid image
     max_rows = max(len(bin) for bin in bins)
-    grid_image = Image.new(img_mode, (n_columns * img_size[0], max_rows * img_size[1]), color="black")
+    grid_image = Image.new(img_mode, (n_cols * img_size[0], max_rows * img_size[1]), color="black")
 
     # Paste images into the grid
     for col, bin_images in enumerate(bins):
@@ -49,49 +55,101 @@ def create_probability_grid(images, probabilities, n_columns=10):
     return grid_image
 
 
-def sample_synthetic_images(synth_dataset, sample_size, classifier, device):
+def create_metric_grid(images, probs, ordered_results, threshold=0.8, n_cols=10):
+    """Create a grid of images with probabilities and labels. We assume that the ordered_results dataframe is sorted by the metric value. The threshold is used to determine the number of classes to display, and can be updated as needed."""
+    # start label computation...
+
+    # all columns except the first (image_id) and last (metric)
+    labels = ordered_results.columns[1:-1]
+    num_samples = len(images)
+
+    # sort probs and calculate the cum sum
+    sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=1)
+    cumulative_sum = torch.cumsum(sorted_probs, dim=1)
+
+    # mask to identify the relevant indices, and then count the number of relevant probabilities
+    mask = cumulative_sum <= threshold
+    top_k = mask.sum(dim=1)
+
+    # create label per image
+    image_labels = []
+    for i in range(num_samples):
+        # predicted class
+        label = f"{labels[sorted_indices[i, 0].item()]}: {sorted_probs[i, 0].item():.2f}"
+        # other classes, if ambiguous
+        for j in range(1, top_k[i]):
+            label += f"\n{labels[sorted_indices[i, j].item()]}: {sorted_probs[i, j].item():.2f}"
+        image_labels.append([i, label])
+    # add labels to the results
+    ordered_results = ordered_results.merge(pd.DataFrame(image_labels, columns=["image_id", "label"]), on="image_id")
+    # update label with metric value
+    ordered_results["label"] = (
+        ordered_results["entropy"].apply(lambda x: f"Entropy: {x:.2f}") + "\n" + ordered_results["label"]
+    )
+
+    # start grid creation...
+
+    # prepare grid
+    n_rows = (num_samples + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.5 * n_cols, 1.5 * n_rows))
+    axes = axes.flatten()  # Flatten the axes array for easier indexing
+
+    # for loop on dataframe
+    for i, row in ordered_results.iterrows():
+        axes[i].imshow(images[row["image_id"]])
+        axes[i].set_title(row["label"], fontsize=8)
+        axes[i].axis("off")
+
+    return fig
+
+
+def curate_results(probs, dataset_name, metric):
+    """Curate the results in a dataframe format, where the first column is the image_id and the last is the value for the guidance metric. All the columns in between are the classes. The dataframe is sorted by the metric."""
+    # transform the probabilities into a dataframe format
+    labels = LABELS[dataset_name]
+    results = pd.DataFrame(probs.detach().cpu().numpy(), columns=labels).reset_index()
+    results = results.rename(columns={"index": "image_id"})
+
+    # compute metric per image
+    value = None
+    if metric == "entropy":
+        value = compute_entropy(probs).detach().cpu().numpy()
+    elif metric == "norm_entropy":
+        value = compute_norm_entropy(probs).detach().cpu().numpy()
+    elif metric == "acd":
+        value = compute_confusion_distance(probs).detach().cpu().numpy()
+    results[metric] = value
+
+    results.sort_values(by=metric, ascending=False, inplace=True)
+    return results
+
+
+def sample_synthetic_images(synth_dataset, sample_size, classifier, metric, device, n_cols=10):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
     # sample images for visualization
     # temporary fix for MNIST dataset
     synth_dataset.set_convert_rgb(synth_dataset.get_dataset_name() != "mnist")
     sampled_tensors, sampled_images = synth_dataset.sample_to_tensor(sample_size)
-    # and probabilities if a classifier is provided
-    sampled_probs = classifier.predict(sampled_tensors.to(device)) if classifier else None
 
+    grid = None
+    results = None
     # log the sample grid
-    if classifier and synth_dataset.get_n_classes() == 2:
+    if classifier:
+        # probabilities for the sampled images
+        sampled_probs = classifier.predict(sampled_tensors.to(device))
+        results = curate_results(sampled_probs, synth_dataset.get_dataset_name(), metric)
+
         # specific grid for binary classification -> same as GASTeN
-        grid = create_probability_grid(sampled_images, sampled_probs)
+        if sampled_probs.size(1) == 2:
+            grid = create_2D_probability_grid(sampled_images, sampled_probs, n_cols)
+        else:
+            # threshold (0.8) may be adjusted
+            grid = create_metric_grid(sampled_images, sampled_probs, results, 0.8, n_cols)
     else:
-        # generic grid
-        n_cols = 10
+        # if no classifier provided, display a generic grid
         n_rows = math.ceil(len(sampled_images) / n_cols)
         grid = make_image_grid(sampled_images, rows=n_rows, cols=n_cols)
-        # TODO implement a new multi-class classification visualization
-
-    results = None
-    if classifier:
-        # for the sampled images, provide the probabilities in a dataframe format
-        labels = LABELS[synth_dataset.get_dataset_name()]
-        results = label_synthetic_images(labels, synth_dataset.get_n_classes(), sampled_probs)
-        # TODO to save as csv
-
     return grid, results
-
-
-def label_synthetic_images(labels, n_classes, probabilities):
-    """Label the images using the classifier and return the results."""
-    # if binary classification, prepare the results
-    if n_classes == 2:
-        probabilities = torch.stack([probabilities, 1 - probabilities], dim=1)
-    # get the top probabilities, indices and respective labels for each image (logging purposes)
-    top_probs, top_indices = torch.topk(probabilities, k=n_classes, dim=1)
-
-    # TODO: this is not great, probably should be done in the classifier or dataset classes
-    return {
-        i: {labels[int(idx)]: round(prob.item(), 2) for idx, prob in zip(top_indices[i], top_probs[i])}
-        for i in range(top_indices.size(0))
-    }
 
 
 def umap_visualization(real_features, synth_features):

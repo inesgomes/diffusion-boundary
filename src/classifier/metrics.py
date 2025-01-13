@@ -14,7 +14,6 @@ def compute_confusion_distance(probs):
 
     (CD) = |0.5 - probs|
     """
-    # compute confusion distance
     return (0.5 - probs).abs()
 
 

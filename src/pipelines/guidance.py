@@ -57,7 +57,7 @@ class ClassifierGuidance(DiffusionPipeline):
         else:
             raise ValueError(f"Guidance type {guidance_type} not supported.")
 
-        # compute teh gradient
+        # compute the gradient
         grad = torch.autograd.grad(metric, images, create_graph=True)[0]
 
         return metric, grad

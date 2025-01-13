@@ -1,7 +1,6 @@
 """This is the main file for the diffusion-boundary package."""
 
 import argparse
-import json
 import math
 import os
 
@@ -172,11 +171,14 @@ def main(configuration):
 
     # sample: grid and probs
     grid, results = sample_synthetic_images(
-        synth_dataset, configuration["evaluation"]["viz-sample-size"], classifier, configuration["device"]
+        synth_dataset,
+        configuration["evaluation"]["viz-sample-size"],
+        classifier,
+        diffusion_settings["args"]["guidance"],
+        configuration["device"],
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
-    # TODO: change for csv
-    wandb.log({"sample_results": json.dumps(results, indent=4)})
+    wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
 
     # finish wandb
     wandb.finish()

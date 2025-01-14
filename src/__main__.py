@@ -198,13 +198,14 @@ def main(configuration):
     wandb.log({"dist_labels": wandb.Image(dist_probs)})
 
     # visualize confusion matrix
-    viz_confusion = visualize_confusion(
+    viz_pairs, viz_diff = visualize_confusion(
         real_dataset_res,
         synth_dataset_res,
         diffusion_settings["args"]["guidance"],
         configuration["evaluation"]["certainty-threshold"],
     )
-    wandb.log({"confusion_grid": wandb.Image(viz_confusion)})
+    wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
+    wandb.log({"boundary_cm": wandb.Image(viz_diff)})
 
     # sample: grid of images and respective probs
     grid, results = visualize_sample_synthetic_images(

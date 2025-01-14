@@ -22,10 +22,10 @@ diffusion:
   name: google/ddpm-cifar10-32
   args:
     guidance: entropy # or norm-entropy
-    num-inference-steps: 100
+    num-inference-steps: 250
     alpha: 0.2
 
 evaluation:
-  num-images: 20
+  num-images: 2000
   viz-sample-size: 20
   certainty-threshold: 0.8 # this may be automatically computed in some way? (e.g. 1 - 1/n_classes)

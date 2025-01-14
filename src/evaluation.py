@@ -93,7 +93,7 @@ def create_metric_grid(images, probs, ordered_results, threshold, n_cols=10):
 
     # prepare grid
     n_rows = (num_samples + n_cols - 1) // n_cols
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.5 * n_cols, 2 * n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.5 * n_cols, 2.5 * n_rows))
     axes = axes.flatten()  # Flatten the axes array for easier indexing
 
     # for loop on dataframe
@@ -220,6 +220,7 @@ def compute_classes_confusion_confusion(results, threshold):
 
     # compute the ambiguous classes per image
     selected_classes = []
+    pairs_classes = []
     for _, row in results.iterrows():
         # sort the probabilities and their corresponding labels in descending order
         sorted_probs_labels = sorted(zip(row.values, row.index), reverse=True, key=lambda x: x[0])
@@ -229,25 +230,27 @@ def compute_classes_confusion_confusion(results, threshold):
         cumsum = pd.Series(sorted_probs).cumsum()
         top_k = (cumsum <= threshold).sum() + 1
         selected = [sorted_labels[i] for i in range(top_k)]
+        selected_classes.append(selected)
 
         # transform the list in subsets of 2, e.g. [A, B, C] = [A, B], [A, C], [B, C]; [A] = [A, A]
         if len(selected) < 2:
             # Handle cases where there are fewer than 2 elements
-            selected_classes.append([selected[0], selected[0]])
+            pairs_classes.append([selected[0], selected[0]])
         else:
             # Generate all combinations of size 2
-            selected_classes.extend([list(pair) for pair in combinations(selected, 2)])
+            pairs_classes.extend([list(pair) for pair in combinations(selected, 2)])
 
-    # sort pairs to avoid duplicates
-    sorted_pairs = [tuple(sorted(pair, reverse=True)) for pair in selected_classes]
+    # sort to avoid duplicates
+    sorted_pairs = [tuple(sorted(pair, reverse=True)) for pair in pairs_classes]
+    sorted_selected = [tuple(sorted(tup, reverse=True)) for tup in selected_classes]
 
-    # with this information, compute the confusion matrix
+    # compute the confusion matrix for the pairs
     df_pairs = pd.DataFrame(sorted_pairs, columns=["class1", "class2"])
     df_pairs["count"] = 1
     df_pairs = df_pairs.groupby(["class1", "class2"], as_index=False)["count"].sum()
 
     matrix = df_pairs.pivot(index="class1", columns="class2", values="count").fillna(0)
-    return matrix
+    return matrix, sorted_selected
 
 
 def visualize_confusion(real_results, synth_results, metric, threshold):
@@ -256,18 +259,19 @@ def visualize_confusion(real_results, synth_results, metric, threshold):
     real_results.drop(columns=["image_id", metric], inplace=True)
     synth_results.drop(columns=["image_id", metric], inplace=True)
 
-    # create subplots and plot the confusion matrixs
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    # prepare matrix and list of classes
+    matrix_real, lst_real = compute_classes_confusion_confusion(real_results, threshold)
+    matrix_synth, lst_synth = compute_classes_confusion_confusion(synth_results, threshold)
 
-    matrix_real = compute_classes_confusion_confusion(real_results, threshold)
-    matrix_synth = compute_classes_confusion_confusion(synth_results, threshold)
+    # create hetmaps for pairs
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
 
     # equal v_max for both heatmaps
     v_max = max(matrix_real.values.max(), matrix_synth.values.max())
 
+    # real heatmap
     mask_real = np.triu(np.ones_like(matrix_real, dtype=bool))
     np.fill_diagonal(mask_real, False)
-
     sns.heatmap(
         matrix_real,
         ax=axes[0],
@@ -282,15 +286,40 @@ def visualize_confusion(real_results, synth_results, metric, threshold):
     )
     axes[0].set_title("Real Dataset")
 
+    # synthetic heatmap
     mask_synth = np.triu(np.ones_like(matrix_synth, dtype=bool))
     np.fill_diagonal(mask_synth, False)
-
     sns.heatmap(
         matrix_synth, ax=axes[1], cmap="Blues", annot=True, fmt="g", mask=mask_synth, vmin=0, vmax=v_max, square=True
     )
     axes[1].set_title("Synthetic Dataset")
 
-    return fig
+    # create heatmap of comparison of boundaries between real and synthetic
+
+    # count the number of times each tuple appears in the real and synthetic datasets
+    combined_df = pd.DataFrame(
+        {"real": pd.Series(lst_real).value_counts(), "synthetic": pd.Series(lst_synth).value_counts()}
+    ).fillna(0)
+    # compute the difference
+    combined_df["difference"] = combined_df["synthetic"] - combined_df["real"]
+    # count number of tuples
+    combined_df["n_boundaries"] = combined_df.index.map(len)
+
+    # create heatmap
+    siz = len(combined_df.index) / 2
+    fig_d, ax_d = plt.subplots(figsize=(siz, siz))
+    cols_order = ["n_boundaries", "real", "synthetic", "difference"]
+    sns.heatmap(
+        combined_df[cols_order].sort_values(by="n_boundaries"),
+        annot=True,
+        cmap="vlag",
+        cbar=True,
+        square=True,
+        ax=ax_d,
+        center=0,
+    )
+
+    return fig, fig_d
 
 
 def umap_visualization(real_features, synth_features):

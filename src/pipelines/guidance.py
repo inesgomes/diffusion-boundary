@@ -89,7 +89,7 @@ class ClassifierGuidance(DiffusionPipeline):
             with torch.no_grad():
                 noise_prediction = self.unet(images, t).sample
 
-            if i % guidance_freq == 0:
+            if (guidance_freq != 0) and (i % guidance_freq == 0):
                 # require gradient for the images
                 images = images.detach().requires_grad_()
 

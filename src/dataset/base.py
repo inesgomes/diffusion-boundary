@@ -14,7 +14,7 @@ class SyntheticDataset(Dataset):
         """Construct the SyntheticDataset class."""
         self.images = images
         self.transform = transform
-        self.transform_norm = TRANSFORMATIONS["norm"]
+        self.transform_norm = TRANSFORMATIONS[f"{dataset_name}_norm"]
         self.dataset_name = dataset_name
         self.n_classes = n_classes
         self.use_default_transformation = True

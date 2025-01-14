@@ -6,7 +6,7 @@ seed: 42
 batch-size: 128
 
 log:
-  images: False
+  images: True
 
 dataset:
   name: cifar10
@@ -23,10 +23,10 @@ diffusion:
   args:
     guidance: entropy # entropy, norm-entropy
     num-inference-steps: 350
-    alpha: 0.2
-    guidance-freq: 10
+    alpha: 0
+    guidance-freq: 0 # 0 means that the diffusion is without guidance
 
 evaluation:
-  num-images: 3000
+  num-images: 2500
   viz-sample-size: 30
   certainty-threshold: 0.8 # this may be automatically computed in some way? (e.g. 1 - 1/n_classes)

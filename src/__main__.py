@@ -131,8 +131,9 @@ def main(configuration):
 
     # save if needed
     if configuration["log"]["images"]:
-        path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id + "/images.pkl"
-        with open(path, "wb") as f:
+        path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
+        os.makedirs(path, exist_ok=True)
+        with open(f"{path}/images.pkl", "wb") as f:
             torch.save(images, f)
             print("Images saved at", path)
 

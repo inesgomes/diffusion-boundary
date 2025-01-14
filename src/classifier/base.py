@@ -1,7 +1,6 @@
 """Base Classifier class for pre-trained models."""
 
 
-# Base Classifier class
 class BaseClassifier:
     """Base class for pre-trained models."""
 

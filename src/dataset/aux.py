@@ -13,26 +13,28 @@ from torchvision import transforms
 TRANSFORMATIONS = {
     "cifar10": transforms.Compose(
         [
+            transforms.Resize(256),
+            transforms.CenterCrop(256),
             transforms.ToTensor(),
             transforms.Normalize(
-                # mean=(0.5, 0.5, 0.5),
-                # std=(0.5, 0.5, 0.5),
-                mean=(0.4914, 0.4822, 0.4465),
-                std=(0.2023, 0.1994, 0.2010),  # CIFAR10 mean and std
+                mean=(0.49139968, 0.48215827, 0.44653124),
+                std=(0.24703233, 0.24348505, 0.26158768),
             ),
+        ]
+    ),
+    "cifar10_norm": transforms.Compose(
+        [
+            transforms.Lambda(lambda img: img.convert("RGB")),
+            transforms.Resize(256),
+            transforms.CenterCrop(256),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
         ]
     ),
     "mnist": transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5,), std=(0.5,)),  # MNIST mean and std
-        ]
-    ),
-    "norm": transforms.Compose(
-        [
-            transforms.Lambda(lambda img: img.convert("RGB")),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+            transforms.Normalize(mean=(0.5,), std=(0.5,)),
         ]
     ),
 }
@@ -54,5 +56,5 @@ def get_tst_dataset(dataset_name, subset, n_samples):
     dataset_subset = samples.select(random.sample(range(len(samples)), n_samples))
     # img or image depending on the dataset
     key = dataset_subset.column_names[0]
-    # pil images
-    return dataset_subset[key]
+    # pil images and labels
+    return dataset_subset[key], dataset_subset["label"]

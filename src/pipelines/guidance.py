@@ -72,6 +72,7 @@ class ClassifierGuidance(DiffusionPipeline):
         classifier = kwargs.get("classifier", None)
         alpha = kwargs.get("alpha", None)
         guidance_type = kwargs.get("guidance_type", None)
+        guidance_freq = kwargs.get("guidance_freq", 1)
 
         # Sample gaussian noise to begin loop
         images = torch.randn(
@@ -82,31 +83,31 @@ class ClassifierGuidance(DiffusionPipeline):
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
 
-        for t in self.progress_bar(self.scheduler.timesteps):
+        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
 
             # 1. predict noise model_output
             with torch.no_grad():
                 noise_prediction = self.unet(images, t).sample
 
-            # require gradient for the images
-            images = images.detach().requires_grad_()
+            if i % guidance_freq == 0:
+                # require gradient for the images
+                images = images.detach().requires_grad_()
 
-            # prediction of the noise model for the current timestep
-            images_0 = self.scheduler.step(noise_prediction, t, images).pred_original_sample
+                # prediction of the noise model for the current timestep
+                images_0 = self.scheduler.step(noise_prediction, t, images).pred_original_sample
 
-            # 2. compute guidance
+                # 2. compute guidance
 
-            # Get gradient
-            # TODO: implement a new hyperparameter to control the step size
-            metric, grad = self.calculate_gradient(classifier, images_0, guidance_type)
-            images = images.detach() + alpha * grad
+                # Get gradient
+                metric, grad = self.calculate_gradient(classifier, images_0, guidance_type)
+                images = images.detach() + alpha * grad
+
+                # log
+                wandb.log({f"mean-{guidance_type}": metric})
+                wandb.log({f"loss-{guidance_type}": grad})
 
             # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
             images = self.scheduler.step(noise_prediction, t, images).prev_sample
-
-            # log
-            wandb.log({f"mean-{guidance_type}": metric})
-            wandb.log({f"loss-{guidance_type}": grad})
 
         # deliver the synthetic images
         images = self.tensor_to_numpy(images)

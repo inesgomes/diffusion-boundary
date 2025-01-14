@@ -60,6 +60,7 @@ def create_arguments(pipeline_name, classifier, diffusion_settings):
             "classifier": classifier,
             "alpha": diffusion_settings["args"]["alpha"],
             "guidance_type": diffusion_settings["args"]["guidance"],
+            "guidance_freq": diffusion_settings["args"]["guidance-freq"],
         }
     return {}
 
@@ -127,6 +128,7 @@ def main(configuration):
         configuration["seed"],
         configuration["device"],
     )
+
     # save if needed
     if configuration["log"]["images"]:
         path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id + "/images.pkl"
@@ -142,9 +144,8 @@ def main(configuration):
         configuration["dataset"]["n_classes"],
         images,
     )
-
     # create real dataset with same configs for evaluation purposes
-    real_images = get_tst_dataset(
+    real_images, real_labels = get_tst_dataset(
         configuration["dataset"]["name"],
         configuration["dataset"]["subset"],
         configuration["evaluation"]["num-images"],
@@ -157,9 +158,14 @@ def main(configuration):
         real_images,
     )
 
-    # EVALUATION
+    # EVALUATION of the synthetic dataset
 
     # from features
+
+    # FID score (calculated seperatly because it needs a different feature extractor)
+    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["batch-size"], configuration["device"])
+    wandb.log({"FID_score": fid_value})
+
     # quality metrics (Improved precision, Improved Recall, Density and Coverage)
     metrics, features_umap = calculate_synthetic_metrics(
         real_dataset,
@@ -170,11 +176,8 @@ def main(configuration):
     wandb.log(metrics)
     wandb.log({"umap": wandb.Image(features_umap)})
 
-    # FID score (calculated seperatly because it needs a different feature extractor)
-    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["batch-size"], configuration["device"])
-    wandb.log({"FID_score": fid_value})
-
     # from probabilities
+
     real_dataset_res = prepare_dataset_results(
         real_dataset,
         classifier,
@@ -218,6 +221,14 @@ def main(configuration):
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
     wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
+
+    # classifier evaluation (for debugging purposes)
+    if classifier:
+        real_dataset_res["label"] = real_labels
+        real_dataset_res["prediction"] = real_dataset_res.iloc[:, 1:-1].values.argmax(axis=1)
+
+        accuracy = (real_dataset_res["label"] == real_dataset_res["prediction"]).sum() / len(real_dataset_res)
+        print(f"Accuracy: {accuracy:.2%}")
 
     # finish wandb
     wandb.finish()

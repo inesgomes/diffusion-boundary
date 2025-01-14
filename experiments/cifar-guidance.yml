@@ -3,7 +3,7 @@ project: 20241121_diffusion
 
 device: cuda:1
 seed: 42
-batch-size: 64
+batch-size: 128
 
 log:
   images: False
@@ -21,11 +21,12 @@ diffusion:
   type: pndm # pndm, ddpm, ddim
   name: google/ddpm-cifar10-32
   args:
-    guidance: entropy # or norm-entropy
-    num-inference-steps: 250
+    guidance: entropy # entropy, norm-entropy
+    num-inference-steps: 350
     alpha: 0.2
+    guidance-freq: 10
 
 evaluation:
-  num-images: 2000
-  viz-sample-size: 20
+  num-images: 3000
+  viz-sample-size: 30
   certainty-threshold: 0.8 # this may be automatically computed in some way? (e.g. 1 - 1/n_classes)

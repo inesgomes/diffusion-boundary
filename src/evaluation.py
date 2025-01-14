@@ -118,8 +118,6 @@ def curate_results(probs, dataset_name, metric):
 
     # compute metric per image and add to the dataframe
     results[metric] = compute_metric(metric, probs).detach().cpu().numpy()
-
-    results.sort_values(by=metric, ascending=False, inplace=True)
     return results
 
 
@@ -139,6 +137,7 @@ def visualize_sample_synthetic_images(
         # probabilities for the sampled images
         sampled_probs = classifier.predict(sampled_tensors.to(device))
         results = curate_results(sampled_probs, synth_dataset.get_dataset_name(), metric)
+        results.sort_values(by=metric, ascending=False, inplace=True)
 
         # specific grid for binary classification -> same as GASTeN
         if sampled_probs.size(1) == 2:

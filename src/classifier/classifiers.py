@@ -28,7 +28,6 @@ class LocalClassifier(BaseClassifier):
         # get model params and state from checkpoint
         cp = torch.load(os.path.join(path, "classifier.pth"))
         model_params = cp["params"]
-
         # construct classifier (in this case, a CNN)
         model = CNN(model_params["img_size"], model_params["n_classes"], model_params["nf"])
         model.load_state_dict(cp["state"])

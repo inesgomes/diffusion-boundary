@@ -18,6 +18,7 @@ from pymdma.image.measures.synthesis_val import (
     ImprovedRecall,
 )
 from pymdma.image.models.features import ExtractorFactory
+from sklearn.metrics import accuracy_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from umap import UMAP
@@ -53,7 +54,7 @@ def create_2D_probability_grid(images, probabilities, n_cols):
     return grid_image
 
 
-def create_metric_grid(images, probs, ordered_results, threshold, n_cols=10):
+def create_metric_grid(images, probs, ordered_results, display_rgb, threshold, n_cols=10):
     """Create a grid of images with probabilities and labels.
 
     We assume that the ordered_results dataframe is sorted by the metric value.
@@ -98,7 +99,10 @@ def create_metric_grid(images, probs, ordered_results, threshold, n_cols=10):
 
     # for loop on dataframe
     for i, row in ordered_results.iterrows():
-        axes[i].imshow(images[row["image_id"]])
+        if not display_rgb:
+            axes[i].imshow(images[row["image_id"]].convert("L"), cmap="gray")
+        else:
+            axes[i].imshow(images[row["image_id"]])
         axes[i].set_title(row["label"], fontsize=8)
         axes[i].axis("off")
 
@@ -122,12 +126,10 @@ def curate_results(probs, dataset_name, metric):
 
 
 def visualize_sample_synthetic_images(
-    synth_dataset, sample_size, classifier, metric, certainty_threshold, device, n_cols=10
+    synth_dataset, sample_size, classifier, metric, display_rgb, certainty_threshold, device, n_cols=10
 ):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
     # sample images for visualization
-    # temporary fix for MNIST dataset
-    synth_dataset.set_convert_rgb(synth_dataset.get_dataset_name() != "mnist")
     sampled_tensors, sampled_images = synth_dataset.sample_to_tensor(sample_size)
 
     grid = None
@@ -135,7 +137,9 @@ def visualize_sample_synthetic_images(
     # log the sample grid
     if classifier:
         # probabilities for the sampled images
-        sampled_probs = classifier.predict(sampled_tensors.to(device))
+        with torch.no_grad():
+            sampled_tensors = sampled_tensors.to(device)
+            sampled_probs = classifier.predict(sampled_tensors)
         results = curate_results(sampled_probs, synth_dataset.get_dataset_name(), metric)
         results.sort_values(by=metric, ascending=False, inplace=True)
 
@@ -143,7 +147,7 @@ def visualize_sample_synthetic_images(
         if sampled_probs.size(1) == 2:
             grid = create_2D_probability_grid(sampled_images, sampled_probs, n_cols)
         else:
-            grid = create_metric_grid(sampled_images, sampled_probs, results, certainty_threshold, n_cols)
+            grid = create_metric_grid(sampled_images, sampled_probs, results, display_rgb, certainty_threshold, n_cols)
     else:
         # if no classifier provided, display a generic grid
         n_rows = math.ceil(len(sampled_images) / n_cols)
@@ -151,16 +155,22 @@ def visualize_sample_synthetic_images(
     return grid, results
 
 
-def prepare_dataset_results(dataset, classifier, metric, batch_size, device):
+def prepare_dataset_results(dataset, classifier, metric, batch_size, device, labels=None):
     """Prepare the dataset results for visualization. First compute the predictions (in batch), then apply the curate_results function."""
     # compute dataset predictions
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=6)
     probs_list = []
-    for batch in tqdm(loader, desc="Compute predictions"):
-        with torch.no_grad():
-            probs_batch = classifier.predict(batch.to(device))
-        probs_list.append(probs_batch.cpu())
-    probs = torch.cat(probs_list, dim=0)
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="Compute predictions"):
+            batch = batch.to(device)
+            probs_batch = classifier.predict(batch)
+            probs_list.append(probs_batch.cpu())
+        probs = torch.cat(probs_list, dim=0)
+
+    if labels is not None:
+        predictions = probs.argmax(dim=1).detach().cpu().numpy()
+        acc = accuracy_score(predictions, labels)
+        print(f"Accuracy: {acc:.2%}")
 
     return curate_results(probs, dataset.get_dataset_name(), metric)
 
@@ -191,7 +201,7 @@ def visualize_distributions(real_results, synth_results, metric):
 
     # probs per class
     labels = viz_results.columns[2:-1]
-    fig_classes, ax_c = plt.subplots(figsize=(6, 2 * len(labels)))
+    fig_classes, ax_c = plt.subplots(figsize=(8, 1.5 * len(labels)))
 
     viz_results_melt = viz_results.melt(id_vars="keys", value_vars=labels, var_name="label", value_name="probability")
     sns.boxplot(
@@ -293,7 +303,7 @@ def visualize_confusion(real_results, synth_results, metric, threshold):
     )
     axes[1].set_title("Synthetic Dataset")
 
-    # create heatmap of comparison of boundaries between real and synthetic
+    # dataframe of comparison of boundaries between real and synthetic
 
     # count the number of times each tuple appears in the real and synthetic datasets
     combined_df = pd.DataFrame(
@@ -304,21 +314,10 @@ def visualize_confusion(real_results, synth_results, metric, threshold):
     # count number of tuples
     combined_df["n_boundaries"] = combined_df.index.map(len)
 
-    # create heatmap
-    siz = len(combined_df.index) / 2
-    fig_d, ax_d = plt.subplots(figsize=(siz, siz))
-    cols_order = ["n_boundaries", "real", "synthetic", "difference"]
-    sns.heatmap(
-        combined_df[cols_order].sort_values(by="n_boundaries"),
-        annot=True,
-        cmap="vlag",
-        cbar=True,
-        square=True,
-        ax=ax_d,
-        center=0,
-    )
+    # sort by number of boundaries
+    combined_df.sort_values(by="n_boundaries", inplace=True)
 
-    return fig, fig_d
+    return fig, combined_df
 
 
 def umap_visualization(real_features, synth_features):
@@ -328,8 +327,8 @@ def umap_visualization(real_features, synth_features):
     fake_feats_2d = umap.transform(synth_features)
 
     fig = plt.figure(figsize=(10, 10))
-    plt.scatter(real_feats_2d[:, 0], real_feats_2d[:, 1], s=3, label="Real Samples", color="red")
-    plt.scatter(fake_feats_2d[:, 0], fake_feats_2d[:, 1], s=3, label="Fake Samples", color="blue")
+    plt.scatter(real_feats_2d[:, 0], real_feats_2d[:, 1], s=3, label=f"Real (n={real_feats_2d.shape[0]})", color="red")
+    plt.scatter(fake_feats_2d[:, 0], fake_feats_2d[:, 1], s=3, label=f"Fake (n={fake_feats_2d.shape[0]})", color="blue")
     plt.title("UMAP Features Visualization | Real vs Synthetic")
     plt.legend()
     return fig
@@ -349,18 +348,20 @@ def calculate_synthetic_metrics(real_dataset, synth_dataset, batch_size, device)
 
     # Extract features for real dataset
     real_features_list = []
-    for batch in tqdm(real_loader, desc="Processing Real Images -> dino vits8"):
-        with torch.no_grad():
-            batch_features = extractor(batch.to(device))
-        real_features_list.append(batch_features.detach().cpu().numpy())
+    with torch.no_grad():
+        for batch in tqdm(real_loader, desc="Processing Real Images -> dino vits8"):
+            batch = batch.to(device)
+            batch_features = extractor(batch)
+            real_features_list.append(batch_features.detach().cpu().numpy())
     real_features = np.concatenate(real_features_list, axis=0)
 
     # Extract features for synthetic dataset
     synth_features_list = []
-    for batch in tqdm(synth_loader, desc="Processing Synthetic Images -> dino vits8"):
-        with torch.no_grad():
-            batch_features = extractor(batch.to(device))
-        synth_features_list.append(batch_features.detach().cpu().numpy())
+    with torch.no_grad():
+        for batch in tqdm(synth_loader, desc="Processing Synthetic Images -> dino vits8"):
+            batch = batch.to(device)
+            batch_features = extractor(batch)
+            synth_features_list.append(batch_features.detach().cpu().numpy())
     fake_features = np.concatenate(synth_features_list, axis=0)
 
     ip_result = ImprovedPrecision(k=6).compute(real_features=real_features, fake_features=fake_features)
@@ -394,18 +395,19 @@ def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
 
     # Extract features for real dataset
     real_features_list = []
-    for batch in tqdm(real_loader, desc="Processing Real Images -> inception"):
-        with torch.no_grad():
+    with torch.no_grad():
+        for batch in tqdm(real_loader, desc="Processing Real Images -> inception"):
             batch_features = extractor(batch.to(device))
-        real_features_list.append(batch_features.detach().cpu().numpy())
+            real_features_list.append(batch_features.detach().cpu().numpy())
     real_features = np.concatenate(real_features_list, axis=0)
 
     # Extract features for synthetic dataset
     synth_features_list = []
-    for batch in tqdm(synth_loader, desc="Processing Synthetic Images -> inception"):
-        with torch.no_grad():
-            batch_features = extractor(batch.to(device))
-        synth_features_list.append(batch_features.detach().cpu().numpy())
+    with torch.no_grad():
+        for batch in tqdm(synth_loader, desc="Processing Synthetic Images -> inception"):
+            batch = batch.to(device)
+            batch_features = extractor(batch)
+            synth_features_list.append(batch_features.detach().cpu().numpy())
     fake_features = np.concatenate(synth_features_list, axis=0)
 
     fid_result = FrechetDistance().compute(real_features, fake_features)

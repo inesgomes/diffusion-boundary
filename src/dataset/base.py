@@ -4,21 +4,19 @@ import random
 
 from torch.utils.data import Dataset
 
-from .aux import TRANSFORMATIONS
-
 
 class SyntheticDataset(Dataset):
     """Class for custom datasets that includes the synthetic samples and the reference to the real ones."""
 
-    def __init__(self, dataset_name, n_classes, images, transform):
+    def __init__(self, dataset_name, n_classes, images, transform, transform_norm=None):
         """Construct the SyntheticDataset class."""
         self.images = images
         self.transform = transform
-        self.transform_norm = TRANSFORMATIONS[f"{dataset_name}_norm"]
+        self.transform_norm = transform_norm
         self.dataset_name = dataset_name
         self.n_classes = n_classes
         self.use_default_transformation = True
-        self.use_convert_rgb = False
+        self.use_convert_rgb = dataset_name == "mnist"
 
     def __len__(self):
         """Return the length of the dataset."""
@@ -55,3 +53,11 @@ class SyntheticDataset(Dataset):
     def get_n_classes(self):
         """Return the number of classes."""
         return self.n_classes
+
+    def transform_images(self, images):
+        """Transform images outside of the dataset, with the same transformation."""
+        raise NotImplementedError("Subclasses should implement this method")
+
+    def set_images(self, images):
+        """Set the images."""
+        self.images = images

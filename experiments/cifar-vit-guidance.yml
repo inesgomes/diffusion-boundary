@@ -3,13 +3,17 @@ project: 20241121_diffusion
 
 device: cuda:1
 seed: 42
+batch-size: 64
+
+log:
+  images: False
 
 dataset:
   name: cifar10
   n_classes: 10
 
 classifier:
-  name: ahsanjavid/convnext-tiny-finetuned-cifar10
+  name: aaraki/vit-base-patch16-224-in21k-finetuned-cifar10 #ahsanjavid/convnext-tiny-finetuned-cifar10 
   lib: transformers
 
 diffusion:
@@ -17,12 +21,12 @@ diffusion:
   type: pndm # pndm, ddpm, ddim
   name: google/ddpm-cifar10-32
   args:
-    guidance: entropy
-    num-inference-steps: 100
-    batch-size: 10
-    alpha: 0.2
+    guidance: entropy # entropy, norm-entropy
+    num-inference-steps: 300
+    alpha: 1
+    guidance-freq: 10 # 0 means that the diffusion is without guidance
 
 evaluation:
-  num-images: 20
-  viz-sample-size: 20
-  certainty-threshold: 0.85
+  num-images: 2500
+  viz-sample-size: 30
+  certainty-threshold: 0.8 # this may be automatically computed in some way? (e.g. 1 - 1/n_classes)

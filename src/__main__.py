@@ -4,6 +4,7 @@ import argparse
 import math
 import os
 
+import pandas as pd
 import torch
 import wandb
 from diffusers import DDIMPipeline, DDPMPipeline, DiffusionPipeline, PNDMPipeline
@@ -53,11 +54,12 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
     return pipeline_class.from_pretrained(model, custom_pipeline=custom_pipeline).to(device)
 
 
-def create_arguments(pipeline_name, classifier, diffusion_settings):
+def create_arguments(pipeline_name, classifier, dataset, diffusion_settings):
     """Get arguments for the diffusion pipeline. Currently only for guidance pipeline."""
     if pipeline_name == "guidance":
         return {
             "classifier": classifier,
+            "transformation": dataset,
             "alpha": diffusion_settings["args"]["alpha"],
             "guidance_type": diffusion_settings["args"]["guidance"],
             "guidance_freq": diffusion_settings["args"]["guidance-freq"],
@@ -65,14 +67,14 @@ def create_arguments(pipeline_name, classifier, diffusion_settings):
     return {}
 
 
-def generate_images(diffusion_settings, classifier, num_images, batch_size, seed, device):
+def generate_images(diffusion_settings, classifier, dataset, num_images, batch_size, seed, device):
     """Generate images using the diffusion pipeline described in the config file."""
     # get diffusion pipeline
     pipe = create_pipeline(
         diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
     )
     # get arguments for the pipeline
-    args = create_arguments(diffusion_settings["pipeline"], classifier, diffusion_settings)
+    args = create_arguments(diffusion_settings["pipeline"], classifier, dataset, diffusion_settings)
 
     # generate images in batches
     num_batches = math.ceil(num_images / batch_size)
@@ -119,15 +121,50 @@ def main(configuration):
             configuration["device"],
         )
 
+    # prepare the original dataset, for evaluation purposes, with the same number of samples as the generated ones
+    real_images, real_labels = get_tst_dataset(
+        configuration["dataset"]["name"], configuration["evaluation"]["num-images"], configuration["dataset"]["subset"]
+    )
+    real_dataset = DatasetFactory.dataset_from_lib(
+        configuration["classifier"]["lib"],
+        configuration["classifier"]["name"],
+        configuration["dataset"]["name"],
+        configuration["dataset"]["n_classes"],
+        real_images,
+    )
+    real_dataset_res = prepare_dataset_results(
+        real_dataset,
+        classifier,
+        diffusion_settings["args"]["guidance"],
+        configuration["batch-size"],
+        configuration["device"],
+        real_labels,
+    )
+
+    torch.cuda.empty_cache()
+
+    # prepare synthetic dataset object
+    synth_dataset = DatasetFactory.dataset_from_lib(
+        configuration["classifier"]["lib"],
+        configuration["classifier"]["name"],
+        configuration["dataset"]["name"],
+        configuration["dataset"]["n_classes"],
+        None,
+    )
+
     # generate images
     images = generate_images(
         diffusion_settings,
         classifier,
+        synth_dataset,
         configuration["evaluation"]["num-images"],
         configuration["batch-size"],
         configuration["seed"],
         configuration["device"],
     )
+    synth_dataset.set_images(images)
+
+    torch.cuda.empty_cache()
 
     # save if needed
     if configuration["log"]["images"]:
@@ -137,35 +174,18 @@ def main(configuration):
             torch.save(images, f)
             print("Images saved at", path)
 
-    # create synthetic dataset
-    synth_dataset = DatasetFactory.dataset_from_lib(
-        configuration["classifier"]["lib"],
-        configuration["classifier"]["name"],
-        configuration["dataset"]["name"],
-        configuration["dataset"]["n_classes"],
-        images,
-    )
-    # create real dataset with same configs for evaluation purposes
-    real_images, real_labels = get_tst_dataset(
-        configuration["dataset"]["name"],
-        configuration["dataset"]["subset"],
-        configuration["evaluation"]["num-images"],
-    )
-    real_dataset = DatasetFactory.dataset_from_lib(
-        configuration["classifier"]["lib"],
-        configuration["classifier"]["name"],
-        configuration["dataset"]["name"],
-        configuration["dataset"]["n_classes"],
-        real_images,
+    # prepare results, from synthetic dataset
+    synth_dataset_res = prepare_dataset_results(
+        synth_dataset,
+        classifier,
+        diffusion_settings["args"]["guidance"],
+        configuration["batch-size"],
+        configuration["device"],
     )
 
     # EVALUATION of the synthetic dataset
 
     # from features
-
-    # FID score (calculated seperatly because it needs a different feature extractor)
-    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["batch-size"], configuration["device"])
-    wandb.log({"FID_score": fid_value})
 
     # quality metrics (Improved precision, Improved Recall, Density and Coverage)
     metrics, features_umap = calculate_synthetic_metrics(
@@ -177,22 +197,11 @@ def main(configuration):
     wandb.log(metrics)
     wandb.log({"umap": wandb.Image(features_umap)})
 
-    # from probabilities
+    # FID score (calculated seperatly because it needs a different feature extractor)
+    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["batch-size"], configuration["device"])
+    wandb.log({"FID_score": fid_value})
 
-    real_dataset_res = prepare_dataset_results(
-        real_dataset,
-        classifier,
-        diffusion_settings["args"]["guidance"],
-        configuration["batch-size"],
-        configuration["device"],
-    )
-    synth_dataset_res = prepare_dataset_results(
-        synth_dataset,
-        classifier,
-        diffusion_settings["args"]["guidance"],
-        configuration["batch-size"],
-        configuration["device"],
-    )
+    # from probabilities
 
     # distributions (boxplot): metric and classes
     dist_metric, dist_probs = visualize_distributions(
@@ -202,14 +211,14 @@ def main(configuration):
     wandb.log({"dist_labels": wandb.Image(dist_probs)})
 
     # visualize confusion matrix
-    viz_pairs, viz_diff = visualize_confusion(
+    viz_pairs, table_confusion = visualize_confusion(
         real_dataset_res,
         synth_dataset_res,
         diffusion_settings["args"]["guidance"],
         configuration["evaluation"]["certainty-threshold"],
     )
     wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
-    wandb.log({"boundary_cm": wandb.Image(viz_diff)})
+    wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
 
     # sample: grid of images and respective probs
     grid, results = visualize_sample_synthetic_images(
@@ -217,19 +226,12 @@ def main(configuration):
         configuration["evaluation"]["viz-sample-size"],
         classifier,
         diffusion_settings["args"]["guidance"],
+        configuration["evaluation"]["display-rgb"],
         configuration["evaluation"]["certainty-threshold"],
         configuration["device"],
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
     wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
-
-    # classifier evaluation (for debugging purposes)
-    if classifier:
-        real_dataset_res["label"] = real_labels
-        real_dataset_res["prediction"] = real_dataset_res.iloc[:, 1:-1].values.argmax(axis=1)
-
-        accuracy = (real_dataset_res["label"] == real_dataset_res["prediction"]).sum() / len(real_dataset_res)
-        print(f"Accuracy: {accuracy:.2%}")
 
     # finish wandb
     wandb.finish()
@@ -242,6 +244,10 @@ if __name__ == "__main__":
     # enable torch32 for faster inference
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
+    # Set display options for Pandas
+    pd.set_option("display.max_rows", None)  # Show all rows
+    pd.set_option("display.max_columns", None)  # Show all columns
+    pd.set_option("display.width", None)  # Expand the width to fit the data
 
     # get arguments
     parser = argparse.ArgumentParser()

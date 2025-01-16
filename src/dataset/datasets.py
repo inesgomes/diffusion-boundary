@@ -13,7 +13,8 @@ class OtherDataset(SyntheticDataset):
     def __init__(self, dataset_name, n_classes, images):
         """Construct the PretrainedTransformer class."""
         transform = TRANSFORMATIONS[dataset_name]
-        super().__init__(dataset_name, n_classes, images, transform)
+        transform_norm = TRANSFORMATIONS[f"{dataset_name}_norm"]
+        super().__init__(dataset_name, n_classes, images, transform, transform_norm)
 
     def __getitem__(self, idx):
         """Get an item from the dataset."""
@@ -24,6 +25,10 @@ class OtherDataset(SyntheticDataset):
         if self.transform_norm:
             return self.transform_norm(self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx])
         return self.images[idx]
+
+    def transform_images(self, images):
+        """Transform images outside of the dataset, with the same transformation."""
+        return torch.stack([self.transform(img) for img in images])
 
     def sample_to_tensor(self, n):
         """Sample n random images and returns them as tensors."""
@@ -44,14 +49,18 @@ class TransfomerDataset(SyntheticDataset):
 
     def __getitem__(self, idx):
         """Get an item from the dataset."""
-        # correct transformation
         if self.transform:
             image = self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
-            return self.transform(images=image, return_tensors="pt")["pixel_values"]
+            return self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
         # 0.5 normalization because of FID calculation
         if self.transform_norm:
             return self.transform_norm(self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx])
         return self.images[idx]
+
+    def transform_images(self, images):
+        """Transform images outside of the dataset, with the same transformation."""
+        images = [img.convert("RGB") if self.use_convert_rgb else img for img in images]
+        return self.transform(images=images, return_tensors="pt")["pixel_values"].squeeze(1)
 
     def sample_to_tensor(self, n):
         """Sample n random images and returns them as tensors."""

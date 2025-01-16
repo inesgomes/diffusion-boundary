@@ -1,28 +1,33 @@
-# EVALUATION NOT WORKING due to errors in the classifier preprocessor
+# working
 project: 20241121_diffusion
 
 device: cuda:1
 seed: 42
+batch-size: 64
+
+log:
+  images: False
 
 dataset:
   name: mnist
   n_classes: 10
 
 classifier:
-  name: fxmarty/resnet-tiny-mnist
+  name: farleyknight-org-username/vit-base-mnist
   lib: transformers
 
 diffusion:
-  type: ddpm # pndm, ddpm, ddim
-  name: 1aurent/ddpm-mnist
   pipeline: guidance
+  type: ddpm # pndm, ddpm, ddim
+  name: dvgodoy/ddpm-cifar10-32-mnist
   args:
     guidance: entropy
-    num-inference-steps: 50
-    batch-size: 10
+    num-inference-steps: 100
     alpha: 0.5
+    guidance-freq: 10
 
 evaluation:
-  num-images: 20
-  viz-sample-size: 20
-  certainty-threshold: 0.85
+  num-images: 2500
+  viz-sample-size: 30
+  certainty-threshold: 0.8
+  display-rgb: False

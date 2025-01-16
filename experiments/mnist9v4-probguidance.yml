@@ -26,3 +26,4 @@ diffusion:
 evaluation:
   num-images: 20
   viz-sample-size: 20
+  display-rgb: False

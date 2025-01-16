@@ -9,6 +9,7 @@ tutorial: https://huggingface.co/learn/diffusion-course/en/unit2/2#guidance
 from typing import List, Optional, Tuple, Union
 
 import torch
+import torch.nn.functional as F
 import wandb
 from diffusers import DiffusionPipeline, ImagePipelineOutput
 
@@ -35,10 +36,18 @@ class ClassifierGuidance(DiffusionPipeline):
         images = images.cpu().permute(0, 2, 3, 1).detach().numpy()
         return images
 
-    def calculate_gradient(self, classifier, images, guidance_type):
+    @torch.enable_grad()
+    def calculate_gradient(self, classifier, transformation, images, guidance_type, pixel_size):
         """Calculate the gradient of the selected metric with respect to the images."""
+        # TODO: change this -> HEAVY (is there a better way?)
+        if transformation is not None:
+            images_pil = self.numpy_to_pil(self.tensor_to_numpy(images))
+            images = transformation.transform_images(images_pil)
+
         # Enable gradients for the pixel images
-        images = images.clone().detach().requires_grad_(True)
+        # images = images.clone().detach().requires_grad_(True)
+        images = images.clone().requires_grad_(True).to(self.device)
+
         # compute the probabilities
         probs = classifier.predict(images)
 
@@ -46,9 +55,15 @@ class ClassifierGuidance(DiffusionPipeline):
         metric = compute_metric(guidance_type, probs).mean()
 
         # compute the gradient
-        grad = torch.autograd.grad(metric, images, create_graph=True)[0]
+        grad = torch.autograd.grad(metric, images)[0]
 
-        return metric, grad
+        # scale gradients for same scale as images
+        scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * images.norm(2).detach()
+        # resize if needed
+        if scaled_gradients.shape[2] != pixel_size:
+            scaled_gradients = F.interpolate(grad, size=(pixel_size, pixel_size), mode="bilinear", align_corners=False)
+
+        return metric, scaled_gradients
 
     def __call__(
         self,
@@ -70,6 +85,7 @@ class ClassifierGuidance(DiffusionPipeline):
             _type_: _description_
         """
         classifier = kwargs.get("classifier", None)
+        transformation = kwargs.get("transformation", None)
         alpha = kwargs.get("alpha", None)
         guidance_type = kwargs.get("guidance_type", None)
         guidance_freq = kwargs.get("guidance_freq", 1)
@@ -99,8 +115,11 @@ class ClassifierGuidance(DiffusionPipeline):
                 # 2. compute guidance
 
                 # Get gradient
-                metric, grad = self.calculate_gradient(classifier, images_0, guidance_type)
+                metric, grad = self.calculate_gradient(
+                    classifier, transformation, images_0, guidance_type, self.unet.config.sample_size
+                )
                 images = images.detach() + alpha * grad
+                # images += alpha * grad
 
                 # log
                 wandb.log({f"mean-{guidance_type}": metric})

@@ -53,6 +53,10 @@ def load_configurations(config_path):
     if "seed" not in config:
         config["seed"] = random.randint(1, 100)
 
+    # check RGB display
+    if "display-rgb" not in config["evaluation"]:
+        config["evaluation"]["display-rgb"] = True
+
     # unit tests
     if "name" not in config["dataset"]:
         print("Dataset name must be defined in the configuration file.")

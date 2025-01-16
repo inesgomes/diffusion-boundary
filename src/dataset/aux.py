@@ -24,7 +24,6 @@ TRANSFORMATIONS = {
     ),
     "cifar10_norm": transforms.Compose(
         [
-            transforms.Lambda(lambda img: img.convert("RGB")),
             transforms.Resize(256),
             transforms.CenterCrop(256),
             transforms.ToTensor(),
@@ -41,20 +40,20 @@ TRANSFORMATIONS = {
 
 LABELS = {
     "cifar10": ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"],
-    "mnist": list(range(10)),
+    "mnist": [str(x) for x in range(10)],
 }
 
 
-def get_tst_dataset(dataset_name, subset, n_samples):
+def get_tst_dataset(dataset_name, n_samples=None, subset=None):
     """Get a dataset. Needs to load the full dataset into memory (may be a drawback for large datasets)."""
     # get a dataset from huggingface
     samples = load_dataset(dataset_name, split="test")
+    key = samples.column_names[0]  # (img or image depending on the dataset)
     # select only the relevant labels, if that is required
     if subset is not None:
         samples = samples.filter(lambda x: x["label"] in subset)
     # select number of samples
-    dataset_subset = samples.select(random.sample(range(len(samples)), n_samples))
-    # img or image depending on the dataset
-    key = dataset_subset.column_names[0]
-    # pil images and labels
-    return dataset_subset[key], dataset_subset["label"]
+    if n_samples is not None:
+        dataset_subset = samples.select(random.sample(range(len(samples)), n_samples))
+        return dataset_subset[key], dataset_subset["label"]
+    return samples[key], samples["label"]

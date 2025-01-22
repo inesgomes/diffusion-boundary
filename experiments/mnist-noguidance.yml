@@ -1,7 +1,12 @@
+# working
 project: 20241121_diffusion
 
 device: cuda:1
 seed: 42
+batch-size: 64
+
+log:
+  images: False
 
 dataset:
   name: mnist
@@ -12,15 +17,14 @@ classifier:
   lib: transformers
 
 diffusion:
-  type: ddpm # pndm, ddpm, ddim
-  name: 1aurent/ddpm-mnist
   pipeline: noguidance
+  type: ddpm # pndm, ddpm, ddim
+  name: dvgodoy/ddpm-cifar10-32-mnist
   args:
-    num-inference-steps: 100
-    batch-size: 50
+    num-inference-steps: 500
 
 evaluation:
-  num-images: 20
-  viz-sample-size: 20
-  certainty-threshold: 0.85
+  num-images: 2500
+  viz-sample-size: 30
+  certainty-threshold: 0.8
   display-rgb: False

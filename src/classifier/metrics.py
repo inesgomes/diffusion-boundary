@@ -2,6 +2,9 @@
 
 import torch
 
+MULTICLASS_METRICS = ["entropy", "norm_entropy", "margin"]
+BINARY_METRICS = ["confusion_distance", "margin"]
+
 
 def compute_confusion_distance(probs):
     """

@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from umap import UMAP
 
-from src.classifier.metrics import compute_metric
+from src.classifier.metrics import BINARY_METRICS, MULTICLASS_METRICS, compute_metric
 from src.dataset.aux import LABELS
 
 
@@ -54,16 +54,22 @@ def create_2D_probability_grid(images, probabilities, n_cols):
     return grid_image
 
 
-def create_metric_grid(images, probs, ordered_results, display_rgb, threshold, n_cols=10):
-    """Create a grid of images with probabilities and labels.
+def create_metric_grid(images, probs, results, sort_metric, display_rgb, threshold, n_cols=10):
+    """Create a grid of images with probabilities and labels. Only for multiclassification.
 
-    We assume that the ordered_results dataframe is sorted by the metric value.
     The threshold is used to determine the number of classes to display, and can be updated as needed.
+    If there is no metric defined, we will asume entropy.
     """
+    # check if metric is defined
+    metric = "entropy" if sort_metric is None else sort_metric
+
+    # sort the results by the metric
+    ordered_results = results.sort_values(by=metric, ascending=False)
+
     # start label computation...
 
-    # all columns except the first (image_id) and last (metric)
-    labels = ordered_results.columns[1:-1]
+    # first column is (image_id) and next ones are the metrics
+    labels = ordered_results.columns[1 : 1 + probs.size(1)]
     num_samples = len(images)
 
     # sort probs and calculate the cum sum
@@ -87,7 +93,7 @@ def create_metric_grid(images, probs, ordered_results, display_rgb, threshold, n
     ordered_results = ordered_results.merge(pd.DataFrame(image_labels, columns=["image_id", "label"]), on="image_id")
     # update label with metric value
     ordered_results["label"] = (
-        ordered_results["entropy"].apply(lambda x: f"Entropy: {x:.2f}\n") + ordered_results["label"]
+        ordered_results[metric].apply(lambda x: f"{metric}: {x:.2f}\n") + ordered_results["label"]
     )
 
     # start grid creation...
@@ -109,7 +115,7 @@ def create_metric_grid(images, probs, ordered_results, display_rgb, threshold, n
     return fig
 
 
-def curate_results(probs, dataset_name, metric):
+def curate_results(probs, dataset_name, n_classes):
     """Curate the results in a dataframe format.
 
     The first column is the image_id and the last is the value for the guidance metric.
@@ -120,13 +126,15 @@ def curate_results(probs, dataset_name, metric):
     results = pd.DataFrame(probs.detach().cpu().numpy(), columns=labels).reset_index()
     results = results.rename(columns={"index": "image_id"})
 
-    # compute metric per image and add to the dataframe
-    results[metric] = compute_metric(metric, probs).detach().cpu().numpy()
+    # compute all extra metrics per image and add to the dataframe
+    metrics = BINARY_METRICS if n_classes == 2 else MULTICLASS_METRICS
+    for metric in metrics:
+        results[metric] = compute_metric(metric, probs).detach().cpu().numpy()
     return results
 
 
 def visualize_sample_synthetic_images(
-    synth_dataset, sample_size, classifier, metric, display_rgb, certainty_threshold, device, n_cols=10
+    synth_dataset, sample_size, classifier, sort_metric, display_rgb, certainty_threshold, device, n_cols=10
 ):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
     # sample images for visualization
@@ -140,14 +148,15 @@ def visualize_sample_synthetic_images(
         with torch.no_grad():
             sampled_tensors = sampled_tensors.to(device)
             sampled_probs = classifier.predict(sampled_tensors)
-        results = curate_results(sampled_probs, synth_dataset.get_dataset_name(), metric)
-        results.sort_values(by=metric, ascending=False, inplace=True)
+        results = curate_results(sampled_probs, synth_dataset.get_dataset_name(), synth_dataset.get_n_classes())
 
         # specific grid for binary classification -> same as GASTeN
         if sampled_probs.size(1) == 2:
             grid = create_2D_probability_grid(sampled_images, sampled_probs, n_cols)
         else:
-            grid = create_metric_grid(sampled_images, sampled_probs, results, display_rgb, certainty_threshold, n_cols)
+            grid = create_metric_grid(
+                sampled_images, sampled_probs, results, sort_metric, display_rgb, certainty_threshold, n_cols
+            )
     else:
         # if no classifier provided, display a generic grid
         n_rows = math.ceil(len(sampled_images) / n_cols)
@@ -155,7 +164,7 @@ def visualize_sample_synthetic_images(
     return grid, results
 
 
-def prepare_dataset_results(dataset, classifier, metric, batch_size, device, labels=None):
+def prepare_dataset_results(dataset, classifier, batch_size, device, gt=None):
     """Prepare the dataset results for visualization. First compute the predictions (in batch), then apply the curate_results function."""
     # compute dataset predictions
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=6)
@@ -167,40 +176,43 @@ def prepare_dataset_results(dataset, classifier, metric, batch_size, device, lab
             probs_list.append(probs_batch.cpu())
         probs = torch.cat(probs_list, dim=0)
 
-    if labels is not None:
+    if gt is not None:
         predictions = probs.argmax(dim=1).detach().cpu().numpy()
-        acc = accuracy_score(predictions, labels)
+        acc = accuracy_score(predictions, gt)
         print(f"Accuracy: {acc:.2%}")
 
-    return curate_results(probs, dataset.get_dataset_name(), metric)
+    return curate_results(probs, dataset.get_dataset_name(), dataset.get_n_classes())
 
 
-def visualize_distributions(real_results, synth_results, metric):
+def visualize_distributions(real_results, synth_results, n_classes):
     """Plot distributions for real and synthetic datasets."""
-    # boxplot real vs synthetic dataset -> metric
-    fig_metric, ax_m = plt.subplots(figsize=(6, 2))
-
     viz_results = pd.concat([real_results, synth_results], keys=["Real", "Synthetic"]).reset_index()
     viz_results = viz_results.rename(columns={"level_0": "keys"}).drop(columns=["level_1"])
 
+    # boxplot real vs synthetic dataset -> metrics
+    metrics = viz_results.columns[n_classes + 2 :]
+    fig_metric, ax_m = plt.subplots(figsize=(8, 1.5 * len(metrics)))
+
+    viz_metrics_melt = viz_results.melt(id_vars="keys", value_vars=metrics, var_name="metric", value_name="value")
+
     sns.boxplot(
-        data=viz_results,
-        x=metric,
-        y="keys",
+        data=viz_metrics_melt,
+        x="value",
+        y="metric",
+        hue="keys",
         ax=ax_m,
         orient="h",
-        order=["Real", "Synthetic"],
+        hue_order=["Real", "Synthetic"],
         palette=["red", "blue"],
         gap=0.1,
-        width=0.7,
+        width=0.5,
         fill=False,
         fliersize=1,
     )
-    ax_m.set_title(f"{metric.capitalize()} Distribution | Real vs Synthetic")
-    ax_m.set_xlabel(metric)
+    ax_m.set_title("Metric values Distribution | Real vs Synthetic")
 
     # probs per class
-    labels = viz_results.columns[2:-1]
+    labels = viz_results.columns[2 : n_classes + 2]
     fig_classes, ax_c = plt.subplots(figsize=(8, 1.5 * len(labels)))
 
     viz_results_melt = viz_results.melt(id_vars="keys", value_vars=labels, var_name="label", value_name="probability")
@@ -262,15 +274,14 @@ def compute_classes_confusion_confusion(results, threshold):
     return matrix, sorted_selected
 
 
-def visualize_confusion(real_results, synth_results, metric, threshold):
+def visualize_confusion(real_results, synth_results, n_classes, threshold):
     """Visualize the confusion matrix for the real and synthetic datasets."""
     # remove irrelevant columns
-    real_results.drop(columns=["image_id", metric], inplace=True)
-    synth_results.drop(columns=["image_id", metric], inplace=True)
+    labels = real_results.columns[1 : n_classes + 1]
 
     # prepare matrix and list of classes
-    matrix_real, lst_real = compute_classes_confusion_confusion(real_results, threshold)
-    matrix_synth, lst_synth = compute_classes_confusion_confusion(synth_results, threshold)
+    matrix_real, lst_real = compute_classes_confusion_confusion(real_results[labels], threshold)
+    matrix_synth, lst_synth = compute_classes_confusion_confusion(synth_results[labels], threshold)
 
     # create hetmaps for pairs
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)

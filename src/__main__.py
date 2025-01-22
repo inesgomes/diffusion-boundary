@@ -135,7 +135,6 @@ def main(configuration):
     real_dataset_res = prepare_dataset_results(
         real_dataset,
         classifier,
-        diffusion_settings["args"]["guidance"],
         configuration["batch-size"],
         configuration["device"],
         real_labels,
@@ -178,7 +177,6 @@ def main(configuration):
     synth_dataset_res = prepare_dataset_results(
         synth_dataset,
         classifier,
-        diffusion_settings["args"]["guidance"],
         configuration["batch-size"],
         configuration["device"],
     )
@@ -205,27 +203,28 @@ def main(configuration):
 
     # distributions (boxplot): metric and classes
     dist_metric, dist_probs = visualize_distributions(
-        real_dataset_res, synth_dataset_res, diffusion_settings["args"]["guidance"]
+        real_dataset_res, synth_dataset_res, configuration["dataset"]["n_classes"]
     )
-    wandb.log({f"dist_{diffusion_settings['args']['guidance']}": wandb.Image(dist_metric)})
+    wandb.log({"dist_metrics": wandb.Image(dist_metric)})
     wandb.log({"dist_labels": wandb.Image(dist_probs)})
 
     # visualize confusion matrix
     viz_pairs, table_confusion = visualize_confusion(
         real_dataset_res,
         synth_dataset_res,
-        diffusion_settings["args"]["guidance"],
+        configuration["dataset"]["n_classes"],
         configuration["evaluation"]["certainty-threshold"],
     )
     wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
     wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
 
     # sample: grid of images and respective probs
+    sort_metric = diffusion_settings["args"]["guidance"] if diffusion_settings["pipeline"] == "guidance" else None
     grid, results = visualize_sample_synthetic_images(
         synth_dataset,
         configuration["evaluation"]["viz-sample-size"],
         classifier,
-        diffusion_settings["args"]["guidance"],
+        sort_metric,
         configuration["evaluation"]["display-rgb"],
         configuration["evaluation"]["certainty-threshold"],
         configuration["device"],

@@ -40,12 +40,15 @@ class ClassifierGuidance(DiffusionPipeline):
     def calculate_gradient(self, classifier, transformation, images, guidance_type, pixel_size):
         """Calculate the gradient of the selected metric with respect to the images."""
         # TODO: change this -> HEAVY (is there a better way?)
+
+        original_n_channels = images.shape[1]
+
         if transformation is not None:
             images_pil = self.numpy_to_pil(self.tensor_to_numpy(images))
             images = transformation.transform_images(images_pil)
 
         # Enable gradients for the pixel images
-        # images = images.clone().detach().requires_grad_(True)
+        # images = images.clone().detach().requires_grad_(True).to(self.device)
         images = images.clone().requires_grad_(True).to(self.device)
 
         # compute the probabilities
@@ -63,6 +66,12 @@ class ClassifierGuidance(DiffusionPipeline):
         if scaled_gradients.shape[2] != pixel_size:
             scaled_gradients = F.interpolate(grad, size=(pixel_size, pixel_size), mode="bilinear", align_corners=False)
 
+        # grayscale -> this is a fix to the problem of the classifier outputting 3 channels when the diffuser only uses one channel
+        if (original_n_channels == 1) & (scaled_gradients.shape[1] == 3):
+            grayscale_gradient = scaled_gradients.mean(dim=1, keepdim=True)
+            return metric, grayscale_gradient
+
+        # normal return
         return metric, scaled_gradients
 
     def __call__(

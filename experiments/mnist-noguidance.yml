@@ -19,7 +19,7 @@ classifier:
 diffusion:
   pipeline: noguidance
   type: ddpm # pndm, ddpm, ddim
-  name: dvgodoy/ddpm-cifar10-32-mnist
+  name: 1aurent/ddpm-mnist 
   args:
     num-inference-steps: 500
 

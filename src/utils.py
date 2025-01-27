@@ -45,6 +45,12 @@ def load_configurations(config_path):
     if "pipeline" not in config["diffusion"]:
         config["diffusion"]["pipeline"] = None
 
+    if "type" not in config["diffusion"]:
+        config["diffusion"]["type"] = None
+
+    if "guidance" not in config["diffusion"]["args"]:
+        config["diffusion"]["args"]["guidance"] = "noguidance"
+
     # check if dataset subset exist
     if "subset" not in config["dataset"]:
         config["dataset"]["subset"] = None

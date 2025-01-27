@@ -8,15 +8,16 @@ from torch.utils.data import Dataset
 class SyntheticDataset(Dataset):
     """Class for custom datasets that includes the synthetic samples and the reference to the real ones."""
 
-    def __init__(self, dataset_name, n_classes, images, transform, transform_norm=None):
+    def __init__(self, dataset_name, n_classes, class_labels, images, transform, transform_norm=None):
         """Construct the SyntheticDataset class."""
         self.images = images
         self.transform = transform
         self.transform_norm = transform_norm
         self.dataset_name = dataset_name
         self.n_classes = n_classes
+        self.class_labels = class_labels
         self.use_default_transformation = True
-        self.use_convert_rgb = dataset_name == "mnist"
+        self.use_convert_rgb = True  # dataset_name == "mnist"
 
     def __len__(self):
         """Return the length of the dataset."""
@@ -53,6 +54,10 @@ class SyntheticDataset(Dataset):
     def get_n_classes(self):
         """Return the number of classes."""
         return self.n_classes
+
+    def get_class_labels(self):
+        """Return the class labels, ordered."""
+        return self.class_labels
 
     def transform_images(self, images):
         """Transform images outside of the dataset, with the same transformation."""

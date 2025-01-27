@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 from src.classifier.factory import ClassifierFactory
-from src.dataset.aux import get_tst_dataset
+from src.dataset.aux import get_tst_dataset_streaming
 from src.dataset.factory import DatasetFactory
 from src.evaluation import (
     calculate_fid_metric,
@@ -51,7 +51,9 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
     custom_pipeline = f"src/pipelines/{pipeline}.py" if pipeline else None
 
     # Load and return the pipeline
-    return pipeline_class.from_pretrained(model, custom_pipeline=custom_pipeline).to(device)
+    return pipeline_class.from_pretrained(
+        model, custom_pipeline=custom_pipeline, cache_dir=os.getenv("HF_MODELS_CACHE")
+    ).to(device)
 
 
 def create_arguments(pipeline_name, classifier, dataset, diffusion_settings):
@@ -101,7 +103,7 @@ def main(configuration):
     wandb.init(
         project=configuration["project"],
         group=generate_group_name(configuration),
-        job_type=diffusion_settings["type"],  # TODO: guidance
+        job_type=diffusion_settings["args"]["guidance"],
         entity=os.getenv("ENTITY"),
         name=generate_run_id(),
         config={
@@ -122,7 +124,7 @@ def main(configuration):
         )
 
     # prepare the original dataset, for evaluation purposes, with the same number of samples as the generated ones
-    real_images, real_labels = get_tst_dataset(
+    real_images, real_labels, class_labels = get_tst_dataset_streaming(
         configuration["dataset"]["name"], configuration["evaluation"]["num-images"], configuration["dataset"]["subset"]
     )
     real_dataset = DatasetFactory.dataset_from_lib(
@@ -130,6 +132,7 @@ def main(configuration):
         configuration["classifier"]["name"],
         configuration["dataset"]["name"],
         configuration["dataset"]["n_classes"],
+        class_labels,
         real_images,
     )
     real_dataset_res = prepare_dataset_results(
@@ -148,6 +151,7 @@ def main(configuration):
         configuration["classifier"]["name"],
         configuration["dataset"]["name"],
         configuration["dataset"]["n_classes"],
+        class_labels,
         None,
     )
 
@@ -206,17 +210,20 @@ def main(configuration):
         real_dataset_res, synth_dataset_res, configuration["dataset"]["n_classes"]
     )
     wandb.log({"dist_metrics": wandb.Image(dist_metric)})
-    wandb.log({"dist_labels": wandb.Image(dist_probs)})
 
-    # visualize confusion matrix
-    viz_pairs, table_confusion = visualize_confusion(
-        real_dataset_res,
-        synth_dataset_res,
-        configuration["dataset"]["n_classes"],
-        configuration["evaluation"]["certainty-threshold"],
-    )
-    wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
-    wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
+    # visualize confusion matrix, only if the number of classes allows it
+    if synth_dataset.get_n_classes() <= 20:
+        # probabilities per label
+        wandb.log({"dist_labels": wandb.Image(dist_probs)})
+
+        viz_pairs, table_confusion = visualize_confusion(
+            real_dataset_res,
+            synth_dataset_res,
+            configuration["dataset"]["n_classes"],
+            configuration["evaluation"]["certainty-threshold"],
+        )
+        wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
+        wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
 
     # sample: grid of images and respective probs
     sort_metric = diffusion_settings["args"]["guidance"] if diffusion_settings["pipeline"] == "guidance" else None

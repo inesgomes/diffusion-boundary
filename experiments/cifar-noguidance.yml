@@ -1,14 +1,15 @@
 project: 20241121_diffusion
 
-device: cpu
+device: cuda:1
 seed: 42
+batch-size: 64
 
 dataset:
   name: cifar10
   n_classes: 10
 
 classifier:
-  name: hf_hub:SamAdamDay/resnet18_cifar10 # hf_hub:edadaltocg/resnet50_cifar10
+  name: hf_hub:SamAdamDay/resnet18_cifar10 
   lib: timm
 
 diffusion:
@@ -16,10 +17,12 @@ diffusion:
   type: pndm # pndm, ddpm, ddim
   name: google/ddpm-cifar10-32
   args:
-    num-inference-steps: 100
-    batch-size: 5
+    num-inference-steps: 1000
+
+log:
+  images: False
 
 evaluation:
-  num-images: 20
-  viz-sample-size: 20
+  num-images: 4000
+  viz-sample-size: 30
   certainty-threshold: 0.85

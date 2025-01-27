@@ -54,7 +54,7 @@ class PretrainedTransformer(BaseClassifier):
 
     def __init__(self, model_name, device):
         """Construct the PretrainedTransformer class."""
-        model = AutoModelForImageClassification.from_pretrained(model_name)
+        model = AutoModelForImageClassification.from_pretrained(model_name, cache_dir=os.getenv("HF_MODELS_CACHE"))
         super().__init__(model, device)
 
     def predict(self, tensor_images):

@@ -40,7 +40,6 @@ class ClassifierGuidance(DiffusionPipeline):
     def calculate_gradient(self, classifier, transformation, images, guidance_type, pixel_size):
         """Calculate the gradient of the selected metric with respect to the images."""
         # TODO: change this -> HEAVY (is there a better way?)
-
         original_n_channels = images.shape[1]
 
         if transformation is not None:
@@ -62,11 +61,12 @@ class ClassifierGuidance(DiffusionPipeline):
 
         # scale gradients for same scale as images
         scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * images.norm(2).detach()
+
         # resize if needed
         if scaled_gradients.shape[2] != pixel_size:
             scaled_gradients = F.interpolate(grad, size=(pixel_size, pixel_size), mode="bilinear", align_corners=False)
 
-        # grayscale -> this is a fix to the problem of the classifier outputting 3 channels when the diffuser only uses one channel
+        # grayscale if needed -> this is a fix to the problem of the classifier outputting 3 channels when the diffuser only uses one channel
         if (original_n_channels == 1) & (scaled_gradients.shape[1] == 3):
             grayscale_gradient = scaled_gradients.mean(dim=1, keepdim=True)
             return metric, grayscale_gradient
@@ -131,8 +131,8 @@ class ClassifierGuidance(DiffusionPipeline):
                 # images += alpha * grad
 
                 # log
-                wandb.log({f"mean-{guidance_type}": metric})
-                wandb.log({f"loss-{guidance_type}": grad})
+                wandb.log({"mean-guidance": metric})
+                wandb.log({"loss-guidance": grad})
 
             # 3. predict previous mean of image x_t-1 -> do x_t -> x_t-1
             images = self.scheduler.step(noise_prediction, t, images).prev_sample

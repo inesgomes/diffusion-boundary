@@ -72,3 +72,6 @@ HF_HUB_OFFLINE=True
     - (not possible)
 - CelebAHQ 
     - (not easy)
+
+
+Imagenet bug: https://huggingface.co/datasets/ILSVRC/imagenet-1k/discussions/25/files

@@ -21,12 +21,12 @@ diffusion:
   type: pndm # pndm, ddpm, ddim
   name: google/ddpm-cifar10-32
   args:
-    guidance: entropy # entropy, norm-entropy
-    num-inference-steps: 300
-    alpha: 1
-    guidance-freq: 10 # 0 means that the diffusion is without guidance
+    num-inference-steps: 10
+    guidance: margin-top2 # norm-entropy, margin-top2, margin
+    alpha: 2
+    guidance-freq: 2 # 0 means that the diffusion is without guidance
 
 evaluation:
-  num-images: 30
+  num-images: 100
   viz-sample-size: 30
-  certainty-threshold: 0.8 # this may be automatically computed in some way? (e.g. 1 - 1/n_classes)
+  certainty-threshold: 0.85 # this may be automatically computed in some way? (e.g. 1 - 1/n_classes)

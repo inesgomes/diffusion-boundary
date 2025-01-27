@@ -24,7 +24,6 @@ from tqdm import tqdm
 from umap import UMAP
 
 from src.classifier.metrics import BINARY_METRICS, MULTICLASS_METRICS, compute_metric
-from src.dataset.aux import LABELS
 
 
 def create_2D_probability_grid(images, probabilities, n_cols):
@@ -115,15 +114,14 @@ def create_metric_grid(images, probs, results, sort_metric, display_rgb, thresho
     return fig
 
 
-def curate_results(probs, dataset_name, n_classes):
+def curate_results(probs, class_labels, n_classes):
     """Curate the results in a dataframe format.
 
     The first column is the image_id and the last is the value for the guidance metric.
     All the columns in between are the classes. The dataframe is sorted by the metric.
     """
     # transform the probabilities into a dataframe format
-    labels = LABELS[dataset_name]
-    results = pd.DataFrame(probs.detach().cpu().numpy(), columns=labels).reset_index()
+    results = pd.DataFrame(probs.detach().cpu().numpy(), columns=class_labels).reset_index()
     results = results.rename(columns={"index": "image_id"})
 
     # compute all extra metrics per image and add to the dataframe
@@ -148,7 +146,7 @@ def visualize_sample_synthetic_images(
         with torch.no_grad():
             sampled_tensors = sampled_tensors.to(device)
             sampled_probs = classifier.predict(sampled_tensors)
-        results = curate_results(sampled_probs, synth_dataset.get_dataset_name(), synth_dataset.get_n_classes())
+        results = curate_results(sampled_probs, synth_dataset.get_class_labels(), synth_dataset.get_n_classes())
 
         # specific grid for binary classification -> same as GASTeN
         if sampled_probs.size(1) == 2:
@@ -181,7 +179,7 @@ def prepare_dataset_results(dataset, classifier, batch_size, device, gt=None):
         acc = accuracy_score(predictions, gt)
         print(f"Accuracy: {acc:.2%}")
 
-    return curate_results(probs, dataset.get_dataset_name(), dataset.get_n_classes())
+    return curate_results(probs, dataset.get_class_labels(), dataset.get_n_classes())
 
 
 def visualize_distributions(real_results, synth_results, n_classes):
@@ -211,9 +209,13 @@ def visualize_distributions(real_results, synth_results, n_classes):
     )
     ax_m.set_title("Metric values Distribution | Real vs Synthetic")
 
+    if n_classes > 20:
+        # do not calculate the probabilities per class if there are too many classes
+        return fig_metric, None
+
     # probs per class
     labels = viz_results.columns[2 : n_classes + 2]
-    fig_classes, ax_c = plt.subplots(figsize=(8, 1.5 * len(labels)))
+    fig_classes, ax_c = plt.subplots(figsize=(8, 1.5 * n_classes))
 
     viz_results_melt = viz_results.melt(id_vars="keys", value_vars=labels, var_name="label", value_name="probability")
     sns.boxplot(
@@ -235,7 +237,7 @@ def visualize_distributions(real_results, synth_results, n_classes):
     return fig_metric, fig_classes
 
 
-def compute_classes_confusion_confusion(results, threshold):
+def compute_classes_confusion(results, threshold):
     """For a given dataset, given the threshold of certainty defined, compute which classes are most likely to be ambiguous."""
     # given the probs, we cumulatively sum, and then apply the threshold to get the classes list
 
@@ -280,8 +282,8 @@ def visualize_confusion(real_results, synth_results, n_classes, threshold):
     labels = real_results.columns[1 : n_classes + 1]
 
     # prepare matrix and list of classes
-    matrix_real, lst_real = compute_classes_confusion_confusion(real_results[labels], threshold)
-    matrix_synth, lst_synth = compute_classes_confusion_confusion(synth_results[labels], threshold)
+    matrix_real, lst_real = compute_classes_confusion(real_results[labels], threshold)
+    matrix_synth, lst_synth = compute_classes_confusion(synth_results[labels], threshold)
 
     # create hetmaps for pairs
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
@@ -398,7 +400,7 @@ def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
     # inception feature extractor -> used for FID calculation
     extractor = ExtractorFactory.model_from_name(name="inception_fid").to(device)
 
-    # data loader
+    # dataloader
     real_dataset.set_default_transformation(False)
     real_loader = DataLoader(real_dataset, batch_size=batch_size, shuffle=False, num_workers=6)
     synth_dataset.set_default_transformation(False)

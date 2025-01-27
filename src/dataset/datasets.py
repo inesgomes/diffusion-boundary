@@ -10,11 +10,11 @@ from .base import SyntheticDataset
 class OtherDataset(SyntheticDataset):
     """Dataset that uses a manual preprocessing step."""
 
-    def __init__(self, dataset_name, n_classes, images):
+    def __init__(self, dataset_name, n_classes, class_labels, images):
         """Construct the PretrainedTransformer class."""
         transform = TRANSFORMATIONS[dataset_name]
         transform_norm = TRANSFORMATIONS[f"{dataset_name}_norm"]
-        super().__init__(dataset_name, n_classes, images, transform, transform_norm)
+        super().__init__(dataset_name, n_classes, class_labels, images, transform, transform_norm)
 
     def __getitem__(self, idx):
         """Get an item from the dataset."""
@@ -42,10 +42,10 @@ class OtherDataset(SyntheticDataset):
 class TransfomerDataset(SyntheticDataset):
     """Dataset that uses a pretrained transformer for preprocessing."""
 
-    def __init__(self, dataset_name, n_classes, model_name, images):
+    def __init__(self, dataset_name, n_classes, class_labels, model_name, images):
         """Construct the PretrainedTransformer class."""
         transform = AutoImageProcessor.from_pretrained(model_name)
-        super().__init__(dataset_name, n_classes, images, transform)
+        super().__init__(dataset_name, n_classes, class_labels, images, transform)
 
     def __getitem__(self, idx):
         """Get an item from the dataset."""

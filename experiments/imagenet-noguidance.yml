@@ -1,0 +1,29 @@
+# working
+project: 20250124_diffusion
+
+device: cuda:1
+seed: 42
+batch-size: 64
+
+log:
+  images: False
+
+dataset:
+  name: ILSVRC/imagenet-1k # consider Imagenette
+  n_classes: 1000
+
+classifier:
+  name: microsoft/resnet-50 # imagenet-1k 224x224
+  lib: transformers
+
+diffusion:
+  pipeline: noguidance
+  name: openai/diffusers-ct_imagenet64 # text-to-image :(
+  args:
+    num-inference-steps: 20
+
+evaluation:
+  num-images: 5000
+  viz-sample-size: 30
+  certainty-threshold: 0.8
+  display-rgb: False

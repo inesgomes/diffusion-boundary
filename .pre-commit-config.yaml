@@ -37,18 +37,18 @@ repos:
         args: ['--fix', '--line-length=120', '--exit-non-zero-on-fix', '--show-fixes']
 
 -   repo: https://github.com/psf/black
-    rev: 24.10.0
+    rev: 25.1.0
     hooks:
     -   id: black
         args: ['--line-length=120']
 
 -   repo: https://github.com/pycqa/pylint
-    rev: v3.3.3
+    rev: v3.3.4
     hooks:
     -   id: pylint
         args: ['-d duplicate-code', '--disable=W0511, C0103, C0411, line-too-long,
-              I1101, import-error, too-few-public-methods, too-many-arguments, too-many-locals, too-many-instance-attributes',
-          '--extension-pkg-allow-list=wandb', '--max-positional-arguments=8']
+              I1101, import-error, too-few-public-methods, too-many-arguments, too-many-locals,
+              too-many-instance-attributes', '--extension-pkg-allow-list=wandb', '--max-positional-arguments=8']
 
 -   repo: https://github.com/asottile/blacken-docs
     rev: 1.19.1
@@ -69,7 +69,7 @@ repos:
     -   id: seed-isort-config
 
 -   repo: https://github.com/pycqa/isort
-    rev: 5.13.2
+    rev: 6.0.0
     hooks:
     -   id: isort
         args: ['--profile', 'black', '-o', 'wandb', '-o', 'datasets']

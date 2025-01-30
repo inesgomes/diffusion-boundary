@@ -56,17 +56,23 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
     ).to(device)
 
 
-def create_arguments(pipeline_name, classifier, dataset, diffusion_settings):
+def create_arguments(pipeline_name, pipeline_type, classifier, dataset, diffusion_arguments):
     """Get arguments for the diffusion pipeline. Currently only for guidance pipeline."""
+    args = {}
     if pipeline_name == "guidance":
-        return {
-            "classifier": classifier,
-            "transformation": dataset,
-            "alpha": diffusion_settings["args"]["alpha"],
-            "guidance_type": diffusion_settings["args"]["guidance"],
-            "guidance_freq": diffusion_settings["args"]["guidance-freq"],
-        }
-    return {}
+        args.update(
+            {
+                "classifier": classifier,
+                "transformation": dataset,
+                "alpha": diffusion_arguments["alpha"],
+                "guidance_type": diffusion_arguments["guidance"],
+                "guidance_freq": diffusion_arguments["guidance-freq"],
+            }
+        )
+    if pipeline_type == "text-to-image":
+        # TODO add latents and guidance_scale
+        args.update({"prompt": diffusion_arguments["prompt"]})
+    return args
 
 
 def generate_images(diffusion_settings, classifier, dataset, num_images, batch_size, seed, device):
@@ -76,7 +82,9 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
         diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
     )
     # get arguments for the pipeline
-    args = create_arguments(diffusion_settings["pipeline"], classifier, dataset, diffusion_settings)
+    args = create_arguments(
+        diffusion_settings["pipeline"], diffusion_settings["type"], classifier, dataset, diffusion_settings["args"]
+    )
 
     # generate images in batches
     num_batches = math.ceil(num_images / batch_size)
@@ -125,7 +133,10 @@ def main(configuration):
 
     # prepare the original dataset, for evaluation purposes, with the same number of samples as the generated ones
     real_images, real_labels, class_labels = get_tst_dataset_streaming(
-        configuration["dataset"]["name"], configuration["evaluation"]["num-images"], configuration["dataset"]["subset"]
+        configuration["dataset"]["name"],
+        configuration["dataset"]["split"],
+        configuration["evaluation"]["num-images"],
+        configuration["dataset"]["subset"],
     )
     real_dataset = DatasetFactory.dataset_from_lib(
         configuration["classifier"]["lib"],

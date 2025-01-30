@@ -34,6 +34,15 @@ def load_configurations(config_path):
         print(f"Config file {config_path} not found.")
         sys.exit(1)
 
+    # unit tests
+    if "name" not in config["dataset"]:
+        print("Dataset name must be defined in the configuration file.")
+        sys.exit(1)
+
+    # manual vs random seed
+    if "seed" not in config:
+        config["seed"] = random.randint(1, 100)
+
     # check if classifier exist
     if "classifier" not in config:
         config["classifier"] = None
@@ -41,7 +50,7 @@ def load_configurations(config_path):
         if config["classifier"]["lib"] == "local":
             config["classifier"]["name"] = os.getenv("MODELS_DIR") + "/" + config["classifier"]["name"]
 
-    # check if type exist
+    # check if guidance exists
     if "pipeline" not in config["diffusion"]:
         config["diffusion"]["pipeline"] = None
 
@@ -51,22 +60,18 @@ def load_configurations(config_path):
     if "guidance" not in config["diffusion"]["args"]:
         config["diffusion"]["args"]["guidance"] = "noguidance"
 
+    if "prompt" not in config["diffusion"]["args"]:
+        config["diffusion"]["args"]["prompt"] = ""
+
     # check if dataset subset exist
     if "subset" not in config["dataset"]:
         config["dataset"]["subset"] = None
 
-    # manual vs random seed
-    if "seed" not in config:
-        config["seed"] = random.randint(1, 100)
+    if "split" not in config["dataset"]:
+        config["dataset"]["split"] = "test"
 
     # check RGB display
     if "display-rgb" not in config["evaluation"]:
         config["evaluation"]["display-rgb"] = True
 
-    # unit tests
-    if "name" not in config["dataset"]:
-        print("Dataset name must be defined in the configuration file.")
-        sys.exit(1)
-
-    # TODO confirm that some values are not None or do not exist
     return config

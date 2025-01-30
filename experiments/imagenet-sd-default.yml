@@ -1,4 +1,4 @@
-# not working
+# working
 project: 20250124_diffusion
 
 device: cuda:1
@@ -9,7 +9,7 @@ log:
   images: False
 
 dataset:
-  name: ILSVRC/imagenet-1k # consider Imagenette
+  name: ILSVRC/imagenet-1k
   n_classes: 1000
   split: train
 
@@ -18,14 +18,12 @@ classifier:
   lib: transformers
 
 diffusion:
-  pipeline: noguidance
-  name: openai/diffusers-ct_imagenet64 # class conditional
-  type: consistency
+  name: CompVis/stable-diffusion-v1-4
+  type: text-to-image
   args:
-    num-inference-steps: 2
+    num-inference-steps: 50
 
 evaluation:
-  num-images: 100
+  num-images: 200
   viz-sample-size: 30
   certainty-threshold: 0.8
-  display-rgb: False

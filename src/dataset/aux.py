@@ -60,15 +60,15 @@ def gen_from_iterable_dataset(iterable_ds):
     yield from iterable_ds
 
 
-def get_tst_dataset_streaming(dataset_name, n_samples=None, subset=None):
+def get_tst_dataset_streaming(dataset_name, dataset_split="test", n_samples=None, subset=None):
     """Get a dataset in streaming mode. This is useful for large datasets as the dataset is not loaded into memory (only after sampling)."""
     if subset is not None:
         raise NotImplementedError("Subset is not yet implemented for streaming datasets")
 
     # get a dataset from huggingface in streaming mode
-    # TODO: this is not correct, as we should use the test set. However, there is a bug on Imagenet test set, so we need to use the training set.
-    dataset = load_dataset(dataset_name, split="train", streaming=True)
-    dataset_sample = dataset.shuffle(seed=42, buffer_size=10000).take(n_samples)
+    # TODO: there is a bug on Imagenet test set, so we need to use the training set in that specific case
+    dataset = load_dataset(dataset_name, split=dataset_split, streaming=True)
+    dataset_sample = dataset.shuffle(seed=42, buffer_size=5000).take(n_samples)
 
     # from iterable to dataset
     ds = Dataset.from_generator(partial(gen_from_iterable_dataset, dataset_sample), features=dataset_sample.features)

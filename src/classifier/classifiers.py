@@ -21,7 +21,8 @@ class LocalClassifier(BaseClassifier):
 
     def predict(self, tensor_images):
         """Return the logits of the model for the given images."""
-        return self.model(tensor_images)
+        logits = self.model(tensor_images)
+        return F.softmax(logits, dim=1), logits
 
     def construct_classifier_from_checkpoint(self, path):
         """Code from GASTeN library, to load a model locally trained."""
@@ -46,7 +47,7 @@ class PretrainedOther(BaseClassifier):
         """Return the logits of the model for the given images."""
         logits = self.model(tensor_images)
         probs = F.softmax(logits, dim=1)
-        return probs
+        return probs, logits
 
 
 class PretrainedTransformer(BaseClassifier):
@@ -61,4 +62,4 @@ class PretrainedTransformer(BaseClassifier):
         """Return the logits of the model for the given images."""
         logits = self.model(tensor_images).logits
         probs = F.softmax(logits, dim=1)
-        return probs
+        return probs, logits

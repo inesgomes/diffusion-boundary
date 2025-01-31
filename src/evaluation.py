@@ -145,7 +145,7 @@ def visualize_sample_synthetic_images(
         # probabilities for the sampled images
         with torch.no_grad():
             sampled_tensors = sampled_tensors.to(device)
-            sampled_probs = classifier.predict(sampled_tensors)
+            sampled_probs, _ = classifier.predict(sampled_tensors)
         results = curate_results(sampled_probs, synth_dataset.get_class_labels(), synth_dataset.get_n_classes())
 
         # specific grid for binary classification -> same as GASTeN
@@ -170,7 +170,7 @@ def prepare_dataset_results(dataset, classifier, batch_size, device, gt=None):
     with torch.no_grad():
         for batch in tqdm(loader, desc="Compute predictions"):
             batch = batch.to(device)
-            probs_batch = classifier.predict(batch)
+            probs_batch, _ = classifier.predict(batch)
             probs_list.append(probs_batch.cpu())
         probs = torch.cat(probs_list, dim=0)
 

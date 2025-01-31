@@ -6,10 +6,20 @@ IMPORTANT: all metrics should be implement so that the higher the value, the clo
 It would also be helpful to have a function that normalizes the metric values to the range [0, 1] for better comparison between different metrics.
 """
 
+import numpy as np
 import torch
+from torch.nn import functional as F
 
-MULTICLASS_METRICS = ["entropy", "norm-entropy", "margin", "margin-top2", "deepgini", "least-confidence"]
-BINARY_METRICS = ["confusion-distance", "margin", "deepgini", "least-confidence"]
+MULTICLASS_METRICS = [
+    "entropy",
+    "norm-entropy",
+    "margin",
+    "margin-top2",
+    "deepgini",
+    "least-confidence",
+    "cross-entropy",
+]
+BINARY_METRICS = ["confusion-distance", "margin", "deepgini", "least-confidence", "binary-entropy", "bce"]
 
 
 def compute_confusion_distance(probs):
@@ -24,6 +34,11 @@ def compute_confusion_distance(probs):
     """
     # return (0.5 - probs).abs()
     return torch.where(probs > 0.5, probs - 0.5, probs)
+
+
+def compute_binary_entropy(probs):
+    """Calculate the binary entropy of the classifier output."""
+    return -probs * np.log2(probs) - (1 - probs) * np.log2(1 - probs)
 
 
 def compute_entropy(probs):
@@ -64,11 +79,34 @@ def compute_least_confidence(probs):
     return 1 - probs.max(dim=1).values
 
 
-def compute_metric(metric, probs):
+def compute_cross_entropy_loss(probs, logits):
+    """Calculate the cross-entropy loss of the classifier output."""
+    return F.cross_entropy(logits, probs, reduction="none")
+
+
+def compute_bce_loss(probs, logits):
+    """Calculate the cross-entropy loss of the classifier output."""
+    # TODO check if it is working
+    return F.binary_cross_entropy(logits, probs, reduction="none")
+
+
+def compute_gaussian_loss(probs, logits):
+    """Calculate the cross-entropy loss of the classifier output."""
+    # TODO check if it is working
+    target = torch.full_like(input=probs, fill_value=0.5)  # target is 0.5 (binary)
+    var = torch.full_like(input=probs, fill_value=0.01)  # variance is 0.1 (we can test different values)
+    return F.gaussian_nll_loss(logits, target, var, reduction="none")
+
+
+def compute_metric(metric, probs, logits=None):
     """Calculate the specified metric of the classifier output."""
+    # avoid problems with log(0) or log(1)
+    probs = torch.clamp(probs, 1e-10, 1 - 1e-10)
+
     metric_functions = {
         "entropy": compute_entropy,
         "confusion-distance": compute_confusion_distance,
+        "binary-entropy": compute_binary_entropy,
         "norm-entropy": compute_norm_entropy,
         "margin": compute_margin,
         "margin-top2": compute_margin_top2,
@@ -76,7 +114,17 @@ def compute_metric(metric, probs):
         "least-confidence": compute_least_confidence,
     }
 
+    loss_functions = {
+        "cross-entropy": compute_cross_entropy_loss,
+        "bce": compute_bce_loss,
+    }
+
     if metric in metric_functions:
         return metric_functions[metric](probs)
+
+    if metric in loss_functions:
+        if logits is not None:
+            return loss_functions[metric](probs, logits)
+        return torch.tensor(float("nan"))
 
     raise ValueError(f"Metric {metric} not supported")

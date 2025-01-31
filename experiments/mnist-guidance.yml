@@ -22,10 +22,10 @@ diffusion:
   name: 1aurent/ddpm-mnist
     # dvgodoy/ddpm-cifar10-32-mnist (bad FIDs)
   args:
-    guidance: margin-top2
-    num-inference-steps: 500
-    alpha: 2
-    guidance-freq: 1
+    guidance: cross-entropy # entropy, norm-entropy, margin, margin-top2, deepgini, least-confidence, cross-entropy
+    num-inference-steps: 100
+    alpha: 1
+    guidance-freq: 5
 
 evaluation:
   num-images: 2500

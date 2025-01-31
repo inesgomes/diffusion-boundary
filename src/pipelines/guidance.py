@@ -51,10 +51,10 @@ class ClassifierGuidance(DiffusionPipeline):
         images = images.clone().requires_grad_(True).to(self.device)
 
         # compute the probabilities
-        probs = classifier.predict(images)
+        probs, logits = classifier.predict(images)
 
         # compute the metric
-        metric = compute_metric(guidance_type, probs).mean()
+        metric = compute_metric(guidance_type, probs, logits).mean()
 
         # compute the gradient
         grad = torch.autograd.grad(metric, images)[0]

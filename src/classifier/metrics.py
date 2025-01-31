@@ -1,15 +1,15 @@
 """
 Metrics for evaluating the classifier output. Can be used for guidance and for visualization purposes.
 
-We receive the classifier output as a tensor of probabilities. The metrics are calculated per each data point in the batch. 
+We receive the classifier output as a tensor of probabilities. The metrics are calculated per each data point in the batch.
 IMPORTANT: all metrics should be implement so that the higher the value, the closer to the decision boundary the classifier is. In the other words, the less confident the classifier is, the higher the metric value should be.
 It would also be helpful to have a function that normalizes the metric values to the range [0, 1] for better comparison between different metrics.
 """
 
 import torch
 
-MULTICLASS_METRICS = ["entropy", "norm-entropy", "margin", "margin-top2", "deepgini"]
-BINARY_METRICS = ["confusion-distance", "margin", "deepgini"]
+MULTICLASS_METRICS = ["entropy", "norm-entropy", "margin", "margin-top2", "deepgini", "least-confidence"]
+BINARY_METRICS = ["confusion-distance", "margin", "deepgini", "least-confidence"]
 
 
 def compute_confusion_distance(probs):
@@ -59,18 +59,24 @@ def compute_deepgini(probs):
     return 1 - torch.sum(probs**2, dim=1)
 
 
+def compute_least_confidence(probs):
+    """Calculate the least confidence of the classifier output. The lowest probability is the least confident."""
+    return 1 - probs.max(dim=1).values
+
+
 def compute_metric(metric, probs):
     """Calculate the specified metric of the classifier output."""
-    if metric == "entropy":
-        return compute_entropy(probs)
-    if metric == "confusion-distance":
-        return compute_confusion_distance(probs)
-    if metric == "norm-entropy":
-        return compute_norm_entropy(probs)
-    if metric == "margin":
-        return compute_margin(probs)
-    if metric == "margin-top2":
-        return compute_margin_top2(probs)
-    if metric == "deepgini":
-        return compute_deepgini(probs)
+    metric_functions = {
+        "entropy": compute_entropy,
+        "confusion-distance": compute_confusion_distance,
+        "norm-entropy": compute_norm_entropy,
+        "margin": compute_margin,
+        "margin-top2": compute_margin_top2,
+        "deepgini": compute_deepgini,
+        "least-confidence": compute_least_confidence,
+    }
+
+    if metric in metric_functions:
+        return metric_functions[metric](probs)
+
     raise ValueError(f"Metric {metric} not supported")

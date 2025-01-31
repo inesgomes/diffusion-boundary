@@ -66,7 +66,6 @@ def get_tst_dataset_streaming(dataset_name, dataset_split="test", n_samples=None
         raise NotImplementedError("Subset is not yet implemented for streaming datasets")
 
     # get a dataset from huggingface in streaming mode
-    # TODO: there is a bug on Imagenet test set, so we need to use the training set in that specific case
     dataset = load_dataset(dataset_name, split=dataset_split, streaming=True)
     dataset_sample = dataset.shuffle(seed=42, buffer_size=5000).take(n_samples)
 

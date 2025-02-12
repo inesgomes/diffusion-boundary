@@ -18,6 +18,7 @@ MULTICLASS_METRICS = [
     "deepgini",
     "least-confidence",
     "cross-entropy",
+    "second-rank",
 ]
 BINARY_METRICS = ["confusion-distance", "margin", "deepgini", "least-confidence", "binary-entropy", "bce"]
 
@@ -79,6 +80,11 @@ def compute_least_confidence(probs):
     return 1 - probs.max(dim=1).values
 
 
+def compute_second_rank(probs):
+    """Calculate the second rank of the classifier output. The second highest probability."""
+    return torch.topk(probs, 2).values[:, 1]
+
+
 def compute_cross_entropy_loss(probs, logits):
     """Calculate the cross-entropy loss of the classifier output."""
     return F.cross_entropy(logits, probs, reduction="none")
@@ -112,6 +118,7 @@ def compute_metric(metric, probs, logits=None):
         "margin-top2": compute_margin_top2,
         "deepgini": compute_deepgini,
         "least-confidence": compute_least_confidence,
+        "second-rank": compute_second_rank,
     }
 
     loss_functions = {

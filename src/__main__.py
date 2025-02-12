@@ -180,14 +180,6 @@ def main(configuration):
 
     torch.cuda.empty_cache()
 
-    # save if needed
-    if configuration["log"]["images"]:
-        path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
-        os.makedirs(path, exist_ok=True)
-        with open(f"{path}/images.pkl", "wb") as f:
-            torch.save(images, f)
-            print("Images saved at", path)
-
     # prepare results, from synthetic dataset
     synth_dataset_res = prepare_dataset_results(
         synth_dataset,
@@ -195,6 +187,25 @@ def main(configuration):
         configuration["batch-size"],
         configuration["device"],
     )
+
+    # _row = synth_dataset_res.iloc[0]
+    # print(_row)
+    # image_tensor = (synth_dataset[_row["image_id"]] + 1) / 2
+    # image_tensor = torch.clamp(image_tensor, 0, 1)
+    # image_np = image_tensor.permute(1, 2, 0).numpy()
+
+    # fig, ax = plt.subplots(figsize=(1.5, 2.5))
+    # ax.imshow(image_np, cmap="gray")
+
+    # wandb.log({"fig_test": wandb.Image(fig)})
+
+    # save if needed
+    if configuration["log"]["images"]:
+        path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
+        os.makedirs(path, exist_ok=True)
+        with open(f"{path}/images.pkl", "wb") as f:
+            torch.save(images, f)
+            print("Images saved at", path)
 
     # EVALUATION of the synthetic dataset
 
@@ -237,16 +248,16 @@ def main(configuration):
         wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
 
     # sample: grid of images and respective probs
-    sort_metric = diffusion_settings["args"]["guidance"] if diffusion_settings["pipeline"] == "guidance" else None
+    # entropy is default metric
+    sort_metric = diffusion_settings["args"]["guidance"] if diffusion_settings["pipeline"] == "guidance" else "entropy"
     grid, results = visualize_sample_synthetic_images(
         synth_dataset,
+        synth_dataset_res,
         configuration["evaluation"]["viz-sample-size"],
-        classifier,
         sort_metric,
         configuration["evaluation"]["display-rgb"],
-        configuration["evaluation"]["certainty-threshold"],
-        configuration["device"],
     )
+
     wandb.log({"sample_grid": wandb.Image(grid)})
     wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
 

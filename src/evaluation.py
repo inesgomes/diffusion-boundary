@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import torch
-from diffusers.utils import make_image_grid
 from PIL import Image
 from pymdma.image.measures.synthesis_val import (
     Coverage,
@@ -30,6 +29,8 @@ def create_2D_probability_grid(images, probabilities, n_cols):
     """Create a grid of images with probabilities.
 
     The images are grouped into bins acording to their probabilities. We are assuming that the probabilities are in the same order as the images.
+
+    TODO: this is currently not being used.
     """
     # Get the size and mode from the first image
     img_size = images[0].size
@@ -53,65 +54,11 @@ def create_2D_probability_grid(images, probabilities, n_cols):
     return grid_image
 
 
-def create_metric_grid(images, probs, results, sort_metric, display_rgb, threshold, n_cols=10):
-    """Create a grid of images with probabilities and labels. Only for multiclassification.
-
-    The threshold is used to determine the number of classes to display, and can be updated as needed.
-    If there is no metric defined, we will asume entropy.
-    """
-    # check if metric is defined
-    metric = "entropy" if sort_metric is None else sort_metric
-
-    # sort the results by the metric
-    ordered_results = results.sort_values(by=metric, ascending=False)
-
-    # start label computation...
-
-    # first column is (image_id) and next ones are the metrics
-    labels = ordered_results.columns[1 : 1 + probs.size(1)]
-    num_samples = len(images)
-
-    # sort probs and calculate the cum sum
-    sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=1)
-    cumulative_sum = torch.cumsum(sorted_probs, dim=1)
-
-    # mask to identify the relevant indices, and then count the number of relevant probabilities
-    mask = cumulative_sum <= threshold
-    top_k = mask.sum(dim=1) + 1
-
-    # create label per image
-    image_labels = []
-    for i in range(num_samples):
-        # predicted class
-        label = ""
-        # other classes, if ambiguous
-        for j in range(top_k[i]):
-            label += f"{labels[sorted_indices[i, j].item()]}: {sorted_probs[i, j].item():.2f}\n"
-        image_labels.append([i, label])
-    # add labels to the results
-    ordered_results = ordered_results.merge(pd.DataFrame(image_labels, columns=["image_id", "label"]), on="image_id")
-    # update label with metric value
-    ordered_results["label"] = (
-        ordered_results[metric].apply(lambda x: f"{metric}: {x:.2f}\n") + ordered_results["label"]
-    )
-
-    # start grid creation...
-
-    # prepare grid
-    n_rows = (num_samples + n_cols - 1) // n_cols
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.5 * n_cols, 2.5 * n_rows))
-    axes = axes.flatten()  # Flatten the axes array for easier indexing
-
-    # for loop on dataframe
-    for i, row in ordered_results.iterrows():
-        if not display_rgb:
-            axes[i].imshow(images[row["image_id"]].convert("L"), cmap="gray")
-        else:
-            axes[i].imshow(images[row["image_id"]])
-        axes[i].set_title(row["label"], fontsize=8)
-        axes[i].axis("off")
-
-    return fig
+def format_label(row, n_classes, metric):
+    """Format the legend to be added on the display of a given image."""
+    top_labels = row["sorted_labels"][:n_classes]
+    legend = "\n".join([f"{label_name}: {row[label_name]:.2f}" for label_name in top_labels])
+    return f"{metric}: {row[metric]:.2f}\n" + legend
 
 
 def curate_results(probs, class_labels, n_classes):
@@ -122,7 +69,15 @@ def curate_results(probs, class_labels, n_classes):
     """
     # transform the probabilities into a dataframe format
     results = pd.DataFrame(probs.detach().cpu().numpy(), columns=class_labels).reset_index()
-    results = results.rename(columns={"index": "image_id"})
+
+    # add an id per each image
+    results.rename(columns={"index": "image_id"}, inplace=True)
+
+    # sort the probabilities and their corresponding labels in descending order
+    sorted_indices = np.argsort(-results[class_labels].values, axis=1)
+    class_labels_array = np.array(class_labels)
+    sorted_labels = class_labels_array[sorted_indices]
+    results["sorted_labels"] = [list(row) for row in sorted_labels]
 
     # compute all extra metrics per image and add to the dataframe
     metrics = BINARY_METRICS if n_classes == 2 else MULTICLASS_METRICS
@@ -132,34 +87,39 @@ def curate_results(probs, class_labels, n_classes):
 
 
 def visualize_sample_synthetic_images(
-    synth_dataset, sample_size, classifier, sort_metric, display_rgb, certainty_threshold, device, n_cols=10
+    synth_dataset, synth_dataset_res, sample_size, sort_metric, display_rgb, n_classes=3, n_cols=10
 ):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
-    # sample images for visualization
-    sampled_tensors, sampled_images = synth_dataset.sample_to_tensor(sample_size)
+    # order dataset by metric and select top sample
+    results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
 
-    grid = None
-    results = None
-    # log the sample grid
-    if classifier:
-        # probabilities for the sampled images
-        with torch.no_grad():
-            sampled_tensors = sampled_tensors.to(device)
-            sampled_probs, _ = classifier.predict(sampled_tensors)
-        results = curate_results(sampled_probs, synth_dataset.get_class_labels(), synth_dataset.get_n_classes())
-
-        # specific grid for binary classification -> same as GASTeN
-        if sampled_probs.size(1) == 2:
-            grid = create_2D_probability_grid(sampled_images, sampled_probs, n_cols)
-        else:
-            grid = create_metric_grid(
-                sampled_images, sampled_probs, results, sort_metric, display_rgb, certainty_threshold, n_cols
-            )
+    # check how many elements have at least half of the max value for the metric
+    mask = synth_dataset_res[sort_metric] >= synth_dataset_res[sort_metric].max() / 2
+    if mask.sum() <= sample_size:
+        results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
     else:
-        # if no classifier provided, display a generic grid
-        n_rows = math.ceil(len(sampled_images) / n_cols)
-        grid = make_image_grid(sampled_images, rows=n_rows, cols=n_cols)
-    return grid, results
+        results = synth_dataset_res[mask].sample(sample_size)
+
+    # prepare grid
+    n_rows = (results.shape[0] + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.5 * n_cols, 2.5 * n_rows))
+    axes = axes.flatten()
+
+    for i, (_, row) in enumerate(results.iterrows()):
+        # from [-1, 1] to [0, 1]
+        image_tensor = (synth_dataset[row["image_id"]] + 1) / 2
+        image_tensor = torch.clamp(image_tensor, 0, 1)
+        image_np = image_tensor.permute(1, 2, 0).numpy()
+        if not display_rgb:
+            axes[i].imshow(image_np, cmap="gray")
+        else:
+            axes[i].imshow(image_np)
+        # calculate label
+        label = format_label(row, n_classes, sort_metric)
+        axes[i].set_title(label, fontsize=8)
+        axes[i].axis("off")
+
+    return fig, results
 
 
 def prepare_dataset_results(dataset, classifier, batch_size, device, gt=None):
@@ -188,7 +148,7 @@ def visualize_distributions(real_results, synth_results, n_classes):
     viz_results = viz_results.rename(columns={"level_0": "keys"}).drop(columns=["level_1"])
 
     # boxplot real vs synthetic dataset -> metrics
-    metrics = viz_results.columns[n_classes + 2 :]
+    metrics = MULTICLASS_METRICS if n_classes >= 2 else BINARY_METRICS
     fig_metric, ax_m = plt.subplots(figsize=(8, 1.5 * len(metrics)))
 
     viz_metrics_melt = viz_results.melt(id_vars="keys", value_vars=metrics, var_name="metric", value_name="value")
@@ -246,6 +206,7 @@ def compute_classes_confusion(results, threshold):
     pairs_classes = []
     for _, row in results.iterrows():
         # sort the probabilities and their corresponding labels in descending order
+        # TODO: this can be improved by using the sorted_labels column
         sorted_probs_labels = sorted(zip(row.values, row.index), reverse=True, key=lambda x: x[0])
         sorted_probs, sorted_labels = zip(*sorted_probs_labels)
 

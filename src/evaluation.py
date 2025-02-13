@@ -22,7 +22,12 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from umap import UMAP
 
-from src.classifier.metrics import BINARY_METRICS, MULTICLASS_METRICS, compute_metric
+from src.classifier.metrics import (
+    BINARY_METRICS,
+    MULTICLASS_METRICS,
+    UNCERTAINTY_METRICS,
+    compute_metric,
+)
 
 
 def create_2D_probability_grid(images, probabilities, n_cols):
@@ -61,31 +66,6 @@ def format_label(row, n_classes, metric):
     return f"{metric}: {row[metric]:.2f}\n" + legend
 
 
-def curate_results(probs, class_labels, n_classes):
-    """Curate the results in a dataframe format.
-
-    The first column is the image_id and the last is the value for the guidance metric.
-    All the columns in between are the classes. The dataframe is sorted by the metric.
-    """
-    # transform the probabilities into a dataframe format
-    results = pd.DataFrame(probs.detach().cpu().numpy(), columns=class_labels).reset_index()
-
-    # add an id per each image
-    results.rename(columns={"index": "image_id"}, inplace=True)
-
-    # sort the probabilities and their corresponding labels in descending order
-    sorted_indices = np.argsort(-results[class_labels].values, axis=1)
-    class_labels_array = np.array(class_labels)
-    sorted_labels = class_labels_array[sorted_indices]
-    results["sorted_labels"] = [list(row) for row in sorted_labels]
-
-    # compute all extra metrics per image and add to the dataframe
-    metrics = BINARY_METRICS if n_classes == 2 else MULTICLASS_METRICS
-    for metric in metrics:
-        results[metric] = compute_metric(metric, probs).detach().cpu().numpy()
-    return results
-
-
 def visualize_sample_synthetic_images(
     synth_dataset, synth_dataset_res, sample_size, sort_metric, display_rgb, n_classes=3, n_cols=10
 ):
@@ -122,7 +102,56 @@ def visualize_sample_synthetic_images(
     return fig, results
 
 
-def prepare_dataset_results(dataset, classifier, batch_size, device, gt=None):
+def calculate_performance_metrics(probs, gt):
+    """Calculate the performance of the model."""
+    # TODO: we may add here other performance metrics
+    predictions = probs.argmax(dim=1).detach().cpu().numpy()
+    acc = accuracy_score(predictions, gt)
+    print(f"Accuracy: {acc:.2%}")
+
+
+def curate_results(class_labels, probs, probs_dropout=None):
+    """Curate the results in a dataframe format.
+
+    The first column is the image_id and the last is the value for the guidance metric.
+    All the columns in between are the classes. The dataframe is sorted by the metric.
+    """
+    # transform the probabilities into a dataframe format
+    results = pd.DataFrame(probs.detach().cpu().numpy(), columns=class_labels).reset_index()
+
+    # add an id per each image
+    results.rename(columns={"index": "image_id"}, inplace=True)
+
+    # sort the probabilities and their corresponding labels in descending order
+    sorted_indices = np.argsort(-results[class_labels].values, axis=1)
+    class_labels_array = np.array(class_labels)
+    sorted_labels = class_labels_array[sorted_indices]
+    results["sorted_labels"] = [list(row) for row in sorted_labels]
+
+    # compute all extra metrics per image and add to the dataframe
+    metrics = BINARY_METRICS if probs.size(1) == 2 else MULTICLASS_METRICS
+    metrics = list(set(metrics) | set(UNCERTAINTY_METRICS))
+    for metric in metrics:
+        results[metric] = compute_metric(metric, probs, probs_dropout).detach().cpu().numpy()
+
+    return results
+
+
+def mc_dropout(model, batch, num_samples=10):
+    """Calculate epistemic uncertainty using MC dropout metric. The higher the value, the closer to the decision boundary the classifier is.
+
+    In this case, we need the model already in training mode and with dropout enabled. Then, we run the forward pass multiple times and calculate the variance of the predictions.
+    """
+    predictions = []
+    for _ in range(num_samples):
+        probs_batch, _ = model.predict(batch)
+        predictions.append(probs_batch.cpu())
+    probs_drop_batch = torch.stack(predictions)
+
+    return probs_drop_batch
+
+
+def prepare_dataset_results(dataset, classifier, batch_size, device, gt=None, num_samples=15):
     """Prepare the dataset results for visualization. First compute the predictions (in batch), then apply the curate_results function."""
     # compute dataset predictions
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=6)
@@ -134,24 +163,47 @@ def prepare_dataset_results(dataset, classifier, batch_size, device, gt=None):
             probs_list.append(probs_batch.cpu())
         probs = torch.cat(probs_list, dim=0)
 
+    # calculate accuracy, if labels exist
     if gt is not None:
-        predictions = probs.argmax(dim=1).detach().cpu().numpy()
-        acc = accuracy_score(predictions, gt)
-        print(f"Accuracy: {acc:.2%}")
+        calculate_performance_metrics(probs, gt)
 
-    return curate_results(probs, dataset.get_class_labels(), dataset.get_n_classes())
+    # compute predictions with MC dropout method
+
+    # first, set dropout and change model to training mode
+    # TODO: I need to see if all models have dropout layers
+    classifier.set_dropout(dropout_p=0.1)
+    classifier.set_train()
+
+    all_predictions = []
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="Compute MC dropout predictions"):
+            batch = batch.to(device)
+            batch_predictions = []
+            for _ in range(num_samples):
+                probs_batch, _ = classifier.predict(batch)
+                batch_predictions.append(probs_batch.unsqueeze(0))
+            batch_predictions = torch.cat(batch_predictions, dim=0)
+            all_predictions.append(batch_predictions)
+    probs_dropout = torch.cat(all_predictions, dim=1).cpu()
+
+    # return to eval mode
+    classifier.set_dropout(dropout_p=0)
+    classifier.set_eval()
+
+    # prepare dataframe with the probabilities + metrics per image
+    return curate_results(dataset.get_class_labels(), probs, probs_dropout)
 
 
-def visualize_distributions(real_results, synth_results, n_classes):
+def visualize_metrics_distributions(real_synth_results, n_classes):
     """Plot distributions for real and synthetic datasets."""
-    viz_results = pd.concat([real_results, synth_results], keys=["Real", "Synthetic"]).reset_index()
-    viz_results = viz_results.rename(columns={"level_0": "keys"}).drop(columns=["level_1"])
-
     # boxplot real vs synthetic dataset -> metrics
     metrics = MULTICLASS_METRICS if n_classes >= 2 else BINARY_METRICS
-    fig_metric, ax_m = plt.subplots(figsize=(8, 1.5 * len(metrics)))
+    metrics = list(set(metrics) | set(UNCERTAINTY_METRICS))
+    fig_metric, ax_m = plt.subplots(figsize=(12, 1.2 * len(metrics)))
 
-    viz_metrics_melt = viz_results.melt(id_vars="keys", value_vars=metrics, var_name="metric", value_name="value")
+    viz_metrics_melt = real_synth_results.melt(
+        id_vars="keys", value_vars=metrics, var_name="metric", value_name="value"
+    )
 
     sns.boxplot(
         data=viz_metrics_melt,
@@ -169,15 +221,18 @@ def visualize_distributions(real_results, synth_results, n_classes):
     )
     ax_m.set_title("Metric values Distribution | Real vs Synthetic")
 
-    if n_classes > 20:
-        # do not calculate the probabilities per class if there are too many classes
-        return fig_metric, None
+    return fig_metric
 
+
+def visualize_class_distributions(real_synth_results, n_classes):
+    """Plot distributions for real and synthetic datasets per each class."""
     # probs per class
-    labels = viz_results.columns[2 : n_classes + 2]
+    labels = real_synth_results.columns[2 : n_classes + 2]
     fig_classes, ax_c = plt.subplots(figsize=(8, 1.5 * n_classes))
 
-    viz_results_melt = viz_results.melt(id_vars="keys", value_vars=labels, var_name="label", value_name="probability")
+    viz_results_melt = real_synth_results.melt(
+        id_vars="keys", value_vars=labels, var_name="label", value_name="probability"
+    )
     sns.boxplot(
         data=viz_results_melt,
         x="probability",
@@ -194,7 +249,7 @@ def visualize_distributions(real_results, synth_results, n_classes):
     )
     ax_c.set_title("Class Probabilities Distribution | Real vs Synthetic")
 
-    return fig_metric, fig_classes
+    return fig_classes
 
 
 def compute_classes_confusion(results, threshold):

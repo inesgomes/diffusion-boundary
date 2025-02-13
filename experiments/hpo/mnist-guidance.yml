@@ -1,12 +1,11 @@
-# working
-project: 20241121_diffusion
+project: 20250213_hpo_diffusion
 
 device: cuda:1
 seed: 42
 batch-size: 64
 log:
   images: False
-  plots: True
+  plots: False
 
 dataset:
   name: mnist
@@ -20,15 +19,27 @@ diffusion:
   pipeline: guidance
   type: ddpm # pndm, ddpm, ddim
   name: 1aurent/ddpm-mnist
-    # dvgodoy/ddpm-cifar10-32-mnist (bad FIDs)
   args:
-    guidance: second-rank # entropy, norm-entropy, margin, margin-top2, deepgini, least-confidence, cross-entropy
     num-inference-steps: 100
-    alpha: 1
-    guidance-freq: 1
+    guidance: 
+      - second-rank # max 0.5
+      - norm-entropy # max 1
+      - margin-top2 # max 1
+      - deepgini # 
+      - least-confidence
+      - cross-entropy
+    alpha: 
+      - 0.5
+      - 1
+      - 1.5
+      - 2
+    guidance-freq: 
+      - 1
+      - 2
+      - 5
 
 evaluation:
-  num-images: 100 #5000
+  num-images: 5000
   viz-sample-size: 30
   certainty-threshold: 0.8
   display-rgb: False

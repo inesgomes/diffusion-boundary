@@ -12,14 +12,16 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 from src.classifier.factory import ClassifierFactory
+from src.classifier.metrics import UNCERTAINTY_METRICS
 from src.dataset.aux import get_tst_dataset_streaming
 from src.dataset.factory import DatasetFactory
 from src.evaluation import (
     calculate_fid_metric,
     calculate_synthetic_metrics,
     prepare_dataset_results,
+    visualize_class_distributions,
     visualize_confusion,
-    visualize_distributions,
+    visualize_metrics_distributions,
     visualize_sample_synthetic_images,
 )
 from src.utils import generate_group_name, generate_run_id, load_configurations
@@ -178,6 +180,14 @@ def main(configuration):
     )
     synth_dataset.set_images(images)
 
+    # save if needed
+    if configuration["log"]["images"]:
+        path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
+        os.makedirs(path, exist_ok=True)
+        with open(f"{path}/images.pkl", "wb") as f:
+            torch.save(images, f)
+            print("Images saved at", path)
+
     torch.cuda.empty_cache()
 
     # prepare results, from synthetic dataset
@@ -188,26 +198,12 @@ def main(configuration):
         configuration["device"],
     )
 
-    # _row = synth_dataset_res.iloc[0]
-    # print(_row)
-    # image_tensor = (synth_dataset[_row["image_id"]] + 1) / 2
-    # image_tensor = torch.clamp(image_tensor, 0, 1)
-    # image_np = image_tensor.permute(1, 2, 0).numpy()
-
-    # fig, ax = plt.subplots(figsize=(1.5, 2.5))
-    # ax.imshow(image_np, cmap="gray")
-
-    # wandb.log({"fig_test": wandb.Image(fig)})
-
-    # save if needed
-    if configuration["log"]["images"]:
-        path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
-        os.makedirs(path, exist_ok=True)
-        with open(f"{path}/images.pkl", "wb") as f:
-            torch.save(images, f)
-            print("Images saved at", path)
-
     # EVALUATION of the synthetic dataset
+
+    # log uncertainty metrics (train vs test)
+    for unc_metric in UNCERTAINTY_METRICS:
+        wandb.log({f"train_{unc_metric}": real_dataset_res[unc_metric].mean()})
+        wandb.log({f"test_{unc_metric}": synth_dataset_res[unc_metric].mean()})
 
     # from features
 
@@ -219,7 +215,8 @@ def main(configuration):
         configuration["device"],
     )
     wandb.log(metrics)
-    wandb.log({"umap": wandb.Image(features_umap)})
+    if configuration["log"]["plots"]:
+        wandb.log({"umap": wandb.Image(features_umap)})
 
     # FID score (calculated seperatly because it needs a different feature extractor)
     fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["batch-size"], configuration["device"])
@@ -228,27 +225,35 @@ def main(configuration):
     # from probabilities
 
     # distributions (boxplot): metric and classes
-    dist_metric, dist_probs = visualize_distributions(
-        real_dataset_res, synth_dataset_res, configuration["dataset"]["n_classes"]
-    )
-    wandb.log({"dist_metrics": wandb.Image(dist_metric)})
+    if configuration["log"]["plots"]:
 
-    # visualize confusion matrix, only if the number of classes allows it
-    if synth_dataset.get_n_classes() <= 20:
-        # probabilities per label
-        wandb.log({"dist_labels": wandb.Image(dist_probs)})
+        real_vs_synth = pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"]).reset_index()
+        real_vs_synth = real_vs_synth.rename(columns={"level_0": "keys"}).drop(columns=["level_1"])
 
-        viz_pairs, table_confusion = visualize_confusion(
-            real_dataset_res,
-            synth_dataset_res,
-            configuration["dataset"]["n_classes"],
-            configuration["evaluation"]["certainty-threshold"],
-        )
-        wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
-        wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
+        # metric distribution (real vs fake)
+        dist_metric = visualize_metrics_distributions(real_vs_synth, configuration["dataset"]["n_classes"])
+        wandb.log({"dist_metrics": wandb.Image(dist_metric)})
+
+        # visualize label information, if number of classes is small
+        if synth_dataset.get_n_classes() <= 10:
+
+            # class distributions -> overall this is a stupid plot
+            dist_labels = visualize_class_distributions(real_vs_synth, configuration["dataset"]["n_classes"])
+            wandb.log({"dist_labels": wandb.Image(dist_labels)})
+
+            # ambiguity matrix
+            viz_pairs, table_confusion = visualize_confusion(
+                real_dataset_res,
+                synth_dataset_res,
+                configuration["dataset"]["n_classes"],
+                configuration["evaluation"]["certainty-threshold"],
+            )
+            wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
+            wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
 
     # sample: grid of images and respective probs
-    # entropy is default metric
+
+    # entropy is default metric to sort, if we have no guidance
     sort_metric = diffusion_settings["args"]["guidance"] if diffusion_settings["pipeline"] == "guidance" else "entropy"
     grid, results = visualize_sample_synthetic_images(
         synth_dataset,
@@ -257,7 +262,6 @@ def main(configuration):
         sort_metric,
         configuration["evaluation"]["display-rgb"],
     )
-
     wandb.log({"sample_grid": wandb.Image(grid)})
     wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
 

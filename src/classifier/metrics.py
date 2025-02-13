@@ -23,6 +23,9 @@ MULTICLASS_METRICS = [
 BINARY_METRICS = ["confusion-distance", "margin", "deepgini", "least-confidence", "binary-entropy", "bce"]
 
 
+UNCERTAINTY_METRICS = ["entropy", "mc-dropout-mean", "mc-dropout-max"]
+
+
 def compute_confusion_distance(probs):
     """
     Calculate the confusion distance of the classifier output. Only for binary classification.
@@ -104,7 +107,17 @@ def compute_gaussian_loss(probs, logits):
     return F.gaussian_nll_loss(logits, target, var, reduction="none")
 
 
-def compute_metric(metric, probs, logits=None):
+def compute_mc_dropout_mean(probs_dropout):
+    """Calculate the mean of the MC dropout probabilities."""
+    return probs_dropout.var(dim=0).mean(dim=-1)
+
+
+def compute_mc_dropout_max(probs_dropout):
+    """Calculate the max of the MC dropout probabilities."""
+    return probs_dropout.var(dim=0).max(dim=-1).values
+
+
+def compute_metric(metric, probs, probs_dropout=None, logits=None):
     """Calculate the specified metric of the classifier output."""
     # avoid problems with log(0) or log(1)
     probs = torch.clamp(probs, 1e-10, 1 - 1e-10)
@@ -126,12 +139,22 @@ def compute_metric(metric, probs, logits=None):
         "bce": compute_bce_loss,
     }
 
+    uncertainty_functions = {
+        "mc-dropout-mean": compute_mc_dropout_mean,
+        "mc-dropout-max": compute_mc_dropout_max,
+    }
+
     if metric in metric_functions:
         return metric_functions[metric](probs)
 
     if metric in loss_functions:
         if logits is not None:
             return loss_functions[metric](probs, logits)
+        return torch.tensor(float("nan"))
+
+    if metric in uncertainty_functions:
+        if probs_dropout is not None:
+            return uncertainty_functions[metric](probs_dropout)
         return torch.tensor(float("nan"))
 
     raise ValueError(f"Metric {metric} not supported")

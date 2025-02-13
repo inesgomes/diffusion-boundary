@@ -63,6 +63,11 @@ def load_configurations(config_path):
     if "prompt" not in config["diffusion"]["args"]:
         config["diffusion"]["args"]["prompt"] = ""
 
+    # transform certain arguments to list
+    config["diffusion"]["args"]["guidance"] = [config["diffusion"]["args"]["guidance"]]
+    config["diffusion"]["args"]["alpha"] = [config["diffusion"]["args"]["alpha"]]
+    config["diffusion"]["args"]["guidance-freq"] = [config["diffusion"]["args"]["guidance-freq"]]
+
     # check if dataset subset exist
     if "subset" not in config["dataset"]:
         config["dataset"]["subset"] = None

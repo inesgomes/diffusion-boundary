@@ -1,8 +1,13 @@
 # NOT WORKING: diffusion not working because it is trained for 10 classes intead of 2 classes
 project: 20241121_diffusion
 
-device: cuda:1
-seed: 42
+user-args: 
+  device: cuda:1
+  seed: 42
+  batch-size: 64
+  log-images: False
+  log-plots: True
+  display-rgb: False
 
 dataset:
   name: mnist
@@ -26,4 +31,3 @@ diffusion:
 evaluation:
   num-images: 20
   viz-sample-size: 20
-  display-rgb: False

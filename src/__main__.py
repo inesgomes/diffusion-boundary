@@ -105,54 +105,54 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
     return images
 
 
-def main(configuration):
-    """Generate a sample image."""
-    diffusion_settings = configuration["diffusion"]
-
+def stress_test_classifier(
+    project_name, group_name, default_configs, dataset_config, classifier_config, diffusion_config, evaluation_config
+):
+    """Stress test a given classifier by generating images using a diffusion pipeline."""
     # init wandb
     wandb.init(
-        project=configuration["project"],
-        group=generate_group_name(configuration),
-        job_type=diffusion_settings["args"]["guidance"],
+        project=project_name,
+        group=group_name,
+        job_type=diffusion_config["args"]["guidance"],
         entity=os.getenv("ENTITY"),
         name=generate_run_id(),
         config={
-            "seed": configuration["seed"],
-            "diffusion": diffusion_settings,
-            "classsifier": configuration["classifier"]["name"],
-            "log_images": configuration["log"]["images"],
+            "seed": default_configs["seed"],
+            "diffusion": diffusion_config,
+            "classsifier": classifier_config["name"],
+            "log_images": default_configs["log-images"],
         },
     )
 
     # get classifier specifications
     classifier = None
-    if configuration["classifier"] is not None:
+    if classifier_config is not None:
         classifier = ClassifierFactory.model_from_lib(
-            configuration["classifier"]["lib"],
-            configuration["classifier"]["name"],
-            configuration["device"],
+            classifier_config["lib"],
+            classifier_config["name"],
+            default_configs["device"],
         )
 
     # prepare the original dataset, for evaluation purposes, with the same number of samples as the generated ones
     real_images, real_labels, class_labels = get_tst_dataset_streaming(
-        configuration["dataset"]["name"],
-        configuration["dataset"]["split"],
-        configuration["evaluation"]["num-images"],
-        configuration["dataset"]["subset"],
+        dataset_config["name"],
+        dataset_config["split"],
+        evaluation_config["num-images"],
+        dataset_config["subset"],
     )
     real_dataset = DatasetFactory.dataset_from_lib(
-        configuration["classifier"]["lib"],
-        configuration["classifier"]["name"],
-        configuration["dataset"]["name"],
-        configuration["dataset"]["n_classes"],
+        classifier_config["lib"],
+        classifier_config["name"],
+        dataset_config["name"],
+        dataset_config["n_classes"],
         class_labels,
         real_images,
     )
     real_dataset_res = prepare_dataset_results(
         real_dataset,
         classifier,
-        configuration["batch-size"],
-        configuration["device"],
+        default_configs["batch-size"],
+        default_configs["device"],
         real_labels,
     )
 
@@ -160,28 +160,28 @@ def main(configuration):
 
     # prepare synthetic dataset object
     synth_dataset = DatasetFactory.dataset_from_lib(
-        configuration["classifier"]["lib"],
-        configuration["classifier"]["name"],
-        configuration["dataset"]["name"],
-        configuration["dataset"]["n_classes"],
+        classifier_config["lib"],
+        classifier_config["name"],
+        dataset_config["name"],
+        dataset_config["n_classes"],
         class_labels,
         None,
     )
 
     # generate images
     images = generate_images(
-        diffusion_settings,
+        diffusion_config,
         classifier,
         synth_dataset,
-        configuration["evaluation"]["num-images"],
-        configuration["batch-size"],
-        configuration["seed"],
-        configuration["device"],
+        evaluation_config["num-images"],
+        default_configs["batch-size"],
+        default_configs["seed"],
+        default_configs["device"],
     )
     synth_dataset.set_images(images)
 
     # save if needed
-    if configuration["log"]["images"]:
+    if default_configs["log-images"]:
         path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
         os.makedirs(path, exist_ok=True)
         with open(f"{path}/images.pkl", "wb") as f:
@@ -194,8 +194,8 @@ def main(configuration):
     synth_dataset_res = prepare_dataset_results(
         synth_dataset,
         classifier,
-        configuration["batch-size"],
-        configuration["device"],
+        default_configs["batch-size"],
+        default_configs["device"],
     )
 
     # EVALUATION of the synthetic dataset
@@ -211,42 +211,44 @@ def main(configuration):
     metrics, features_umap = calculate_synthetic_metrics(
         real_dataset,
         synth_dataset,
-        configuration["batch-size"],
-        configuration["device"],
+        default_configs["batch-size"],
+        default_configs["device"],
     )
     wandb.log(metrics)
-    if configuration["log"]["plots"]:
+    if default_configs["log-plots"]:
         wandb.log({"umap": wandb.Image(features_umap)})
 
     # FID score (calculated seperatly because it needs a different feature extractor)
-    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["batch-size"], configuration["device"])
+    fid_value = calculate_fid_metric(
+        real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
+    )
     wandb.log({"FID_score": fid_value})
 
     # from probabilities
 
     # distributions (boxplot): metric and classes
-    if configuration["log"]["plots"]:
+    if default_configs["log-plots"]:
 
         real_vs_synth = pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"]).reset_index()
         real_vs_synth = real_vs_synth.rename(columns={"level_0": "keys"}).drop(columns=["level_1"])
 
         # metric distribution (real vs fake)
-        dist_metric = visualize_metrics_distributions(real_vs_synth, configuration["dataset"]["n_classes"])
+        dist_metric = visualize_metrics_distributions(real_vs_synth, dataset_config["n_classes"])
         wandb.log({"dist_metrics": wandb.Image(dist_metric)})
 
         # visualize label information, if number of classes is small
         if synth_dataset.get_n_classes() <= 10:
 
             # class distributions -> overall this is a stupid plot
-            dist_labels = visualize_class_distributions(real_vs_synth, configuration["dataset"]["n_classes"])
+            dist_labels = visualize_class_distributions(real_vs_synth, dataset_config["n_classes"])
             wandb.log({"dist_labels": wandb.Image(dist_labels)})
 
             # ambiguity matrix
             viz_pairs, table_confusion = visualize_confusion(
                 real_dataset_res,
                 synth_dataset_res,
-                configuration["dataset"]["n_classes"],
-                configuration["evaluation"]["certainty-threshold"],
+                dataset_config["n_classes"],
+                evaluation_config["certainty-threshold"],
             )
             wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
             wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
@@ -254,19 +256,55 @@ def main(configuration):
     # sample: grid of images and respective probs
 
     # entropy is default metric to sort, if we have no guidance
-    sort_metric = diffusion_settings["args"]["guidance"] if diffusion_settings["pipeline"] == "guidance" else "entropy"
+    sort_metric = diffusion_config["args"]["guidance"] if diffusion_config["pipeline"] == "guidance" else "entropy"
     grid, results = visualize_sample_synthetic_images(
         synth_dataset,
         synth_dataset_res,
-        configuration["evaluation"]["viz-sample-size"],
+        evaluation_config["viz-sample-size"],
         sort_metric,
-        configuration["evaluation"]["display-rgb"],
+        default_configs["display-rgb"],
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
     wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
 
     # finish wandb
     wandb.finish()
+
+
+def main(configuration):
+    """Run the stress test per configuration."""
+    group_name = generate_group_name(configuration)
+    user_configs = configuration["user-args"]
+    dataset_config = configuration["dataset"]
+    classifier_config = configuration["classifier"]
+    evaluation_config = configuration["evaluation"]
+
+    guidance_metric = configuration["diffusion"]["args"]["guidance"]
+    alpha = configuration["diffusion"]["args"]["alpha"]
+    guidance_freq = configuration["diffusion"]["args"]["guidance-freq"]
+
+    diffusion_config = configuration["diffusion"]
+
+    i = 1
+    max_i = len(guidance_metric) * len(alpha) * len(guidance_freq)
+    for guidance_metric_value in guidance_metric:
+        for alpha_value in alpha:
+            for guidance_freq_value in guidance_freq:
+                diffusion_config["args"]["guidance"] = guidance_metric_value
+                diffusion_config["args"]["alpha"] = alpha_value
+                diffusion_config["args"]["guidance-freq"] = guidance_freq_value
+
+                # apply stress testing
+                print(f"Starting stress test {i}/{max_i}...")
+                stress_test_classifier(
+                    configuration["project"],
+                    group_name,
+                    user_configs,
+                    dataset_config,
+                    classifier_config,
+                    diffusion_config,
+                    evaluation_config,
+                )
 
 
 if __name__ == "__main__":

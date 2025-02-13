@@ -1,12 +1,13 @@
 # working
 project: 20241121_diffusion
 
-device: cuda:1
-seed: 42
-batch-size: 64
-
-log:
-  images: False
+user-args: 
+  device: cuda:1
+  seed: 42
+  batch-size: 64
+  log-images: False
+  log-plots: True
+  display-rgb: True
 
 dataset:
   name: cifar10

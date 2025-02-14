@@ -25,10 +25,13 @@ diffusion:
   args:
     guidance: second-rank # entropy, norm-entropy, margin, margin-top2, deepgini, least-confidence, cross-entropy
     num-inference-steps: 100
-    alpha: 1
-    guidance-freq: 1
+    alpha: 2
+    guidance-freq: 2
 
 evaluation:
   num-images: 100 #5000
   viz-sample-size: 30
   certainty-threshold: 0.8
+  mc-dropout:
+    n-samples: 15
+    threshold: 0.3

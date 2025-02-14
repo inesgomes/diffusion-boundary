@@ -23,6 +23,7 @@ from src.evaluation import (
     visualize_confusion,
     visualize_metrics_distributions,
     visualize_sample_synthetic_images,
+    visualize_top_synthetic_metric,
 )
 from src.utils import generate_group_name, generate_run_id, load_configurations
 
@@ -109,6 +110,11 @@ def stress_test_classifier(
     project_name, group_name, default_configs, dataset_config, classifier_config, diffusion_config, evaluation_config
 ):
     """Stress test a given classifier by generating images using a diffusion pipeline."""
+    # diffusion configurarions in wandb format
+    diffusion_config_txt = diffusion_config.copy()
+    diffusion_config_txt.update(diffusion_config_txt.pop("args", {}))
+    diffusion_config_txt.pop("pipeline", {})
+
     # init wandb
     wandb.init(
         project=project_name,
@@ -117,10 +123,12 @@ def stress_test_classifier(
         entity=os.getenv("ENTITY"),
         name=generate_run_id(),
         config={
-            "seed": default_configs["seed"],
-            "diffusion": diffusion_config,
+            "num-images": evaluation_config["num-images"],
+            "certainty-threshold": evaluation_config["certainty-threshold"],
             "classsifier": classifier_config["name"],
-            "log_images": default_configs["log-images"],
+            "diffusion": diffusion_config_txt,
+            "seed": default_configs["seed"],
+            "log-images": default_configs["log-images"],
         },
     )
 
@@ -153,6 +161,8 @@ def stress_test_classifier(
         classifier,
         default_configs["batch-size"],
         default_configs["device"],
+        evaluation_config["mc-dropout"]["n-samples"],
+        evaluation_config["mc-dropout"]["threshold"],
         real_labels,
     )
 
@@ -196,16 +206,21 @@ def stress_test_classifier(
         classifier,
         default_configs["batch-size"],
         default_configs["device"],
+        evaluation_config["mc-dropout"]["n-samples"],
+        evaluation_config["mc-dropout"]["threshold"],
     )
 
     # EVALUATION of the synthetic dataset
 
-    # log uncertainty metrics (train vs test)
+    # log uncertainty metrics
     for unc_metric in UNCERTAINTY_METRICS:
-        wandb.log({f"train_{unc_metric}": real_dataset_res[unc_metric].mean()})
-        wandb.log({f"test_{unc_metric}": synth_dataset_res[unc_metric].mean()})
+        wandb.log({f"{unc_metric}": synth_dataset_res[unc_metric].mean()})
+        fig = visualize_top_synthetic_metric(
+            synth_dataset, synth_dataset_res, unc_metric, default_configs["display-rgb"]
+        )
+        wandb.log({f"{unc_metric}_sample": wandb.Image(fig)})
 
-    # from features
+    # from features:
 
     # quality metrics (Improved precision, Improved Recall, Density and Coverage)
     metrics, features_umap = calculate_synthetic_metrics(
@@ -282,7 +297,6 @@ def main(configuration):
     guidance_metric = configuration["diffusion"]["args"]["guidance"]
     alpha = configuration["diffusion"]["args"]["alpha"]
     guidance_freq = configuration["diffusion"]["args"]["guidance-freq"]
-
     diffusion_config = configuration["diffusion"]
 
     i = 1

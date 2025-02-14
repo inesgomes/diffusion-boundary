@@ -66,8 +66,29 @@ def format_label(row, n_classes, metric):
     return f"{metric}: {row[metric]:.2f}\n" + legend
 
 
+def visualize_top_synthetic_metric(images_dataset, results, sort_metric, display_rgb=True):
+    """Visualize the top 5 synthetic images based on a given metric."""
+    N_SAMPLES = 5
+    top_results = results.sort_values(by=sort_metric, ascending=False).head(N_SAMPLES)
+
+    fig, axes = plt.subplots(1, N_SAMPLES, figsize=(1.5 * N_SAMPLES, 2.5))
+
+    images_dataset.set_use_transformation("none")
+    for i, (_, row) in enumerate(top_results.iterrows()):
+        if not display_rgb:
+            axes[i].imshow(images_dataset[row["image_id"]].convert("L"), cmap="gray")
+        else:
+            axes[i].imshow(images_dataset[row["image_id"]])
+        label = f"{row[sort_metric]:.2f}"
+        axes[i].set_title(label, fontsize=8)
+        axes[i].axis("off")
+    images_dataset.set_use_transformation("default")
+
+    return fig
+
+
 def visualize_sample_synthetic_images(
-    synth_dataset, synth_dataset_res, sample_size, sort_metric, display_rgb, n_classes=3, n_cols=10
+    synth_dataset, synth_dataset_res, sample_size, sort_metric, display_rgb, n_cols=10
 ):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
     # order dataset by metric and select top sample
@@ -85,19 +106,19 @@ def visualize_sample_synthetic_images(
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.5 * n_cols, 2.5 * n_rows))
     axes = axes.flatten()
 
+    synth_dataset.set_use_transformation("none")
+
     for i, (_, row) in enumerate(results.iterrows()):
-        # from [-1, 1] to [0, 1]
-        image_tensor = (synth_dataset[row["image_id"]] + 1) / 2
-        image_tensor = torch.clamp(image_tensor, 0, 1)
-        image_np = image_tensor.permute(1, 2, 0).numpy()
         if not display_rgb:
-            axes[i].imshow(image_np, cmap="gray")
+            axes[i].imshow(synth_dataset[row["image_id"]].convert("L"), cmap="gray")
         else:
-            axes[i].imshow(image_np)
+            axes[i].imshow(synth_dataset[row["image_id"]])
         # calculate label
-        label = format_label(row, n_classes, sort_metric)
+        label = format_label(row, 3, sort_metric)
         axes[i].set_title(label, fontsize=8)
         axes[i].axis("off")
+
+    synth_dataset.set_use_transformation("default")
 
     return fig, results
 
@@ -137,21 +158,7 @@ def curate_results(class_labels, probs, probs_dropout=None):
     return results
 
 
-def mc_dropout(model, batch, num_samples=10):
-    """Calculate epistemic uncertainty using MC dropout metric. The higher the value, the closer to the decision boundary the classifier is.
-
-    In this case, we need the model already in training mode and with dropout enabled. Then, we run the forward pass multiple times and calculate the variance of the predictions.
-    """
-    predictions = []
-    for _ in range(num_samples):
-        probs_batch, _ = model.predict(batch)
-        predictions.append(probs_batch.cpu())
-    probs_drop_batch = torch.stack(predictions)
-
-    return probs_drop_batch
-
-
-def prepare_dataset_results(dataset, classifier, batch_size, device, gt=None, num_samples=15):
+def prepare_dataset_results(dataset, classifier, batch_size, device, num_samples, drop_threshold, gt=None):
     """Prepare the dataset results for visualization. First compute the predictions (in batch), then apply the curate_results function."""
     # compute dataset predictions
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=6)
@@ -171,7 +178,7 @@ def prepare_dataset_results(dataset, classifier, batch_size, device, gt=None, nu
 
     # first, set dropout and change model to training mode
     # TODO: I need to see if all models have dropout layers
-    classifier.set_dropout(dropout_p=0.1)
+    classifier.set_dropout(dropout_p=drop_threshold)
     classifier.set_train()
 
     all_predictions = []
@@ -417,9 +424,9 @@ def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
     extractor = ExtractorFactory.model_from_name(name="inception_fid").to(device)
 
     # dataloader
-    real_dataset.set_default_transformation(False)
+    real_dataset.set_use_transformation("norm")
     real_loader = DataLoader(real_dataset, batch_size=batch_size, shuffle=False, num_workers=6)
-    synth_dataset.set_default_transformation(False)
+    synth_dataset.set_use_transformation("norm")
     synth_loader = DataLoader(synth_dataset, batch_size=batch_size, shuffle=False, num_workers=6)
 
     # Extract features for real dataset
@@ -440,5 +447,8 @@ def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
     fake_features = np.concatenate(synth_features_list, axis=0)
 
     fid_result = FrechetDistance().compute(real_features, fake_features)
+
+    real_dataset.set_use_transformation("default")
+    synth_dataset.set_use_transformation("default")
 
     return fid_result.value[0]

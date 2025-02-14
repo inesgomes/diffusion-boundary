@@ -19,10 +19,10 @@ class OtherDataset(SyntheticDataset):
     def __getitem__(self, idx):
         """Get an item from the dataset."""
         # correct transformation
-        if self.transform and self.use_default_transformation:
+        if self.transform and (self.use_transformation == "default"):
             return self.transform(self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx])
         # 0.5 normalization because of FID calculation
-        if self.transform_norm:
+        if self.transform_norm and (self.use_transformation == "norm"):
             return self.transform_norm(self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx])
         return self.images[idx]
 
@@ -49,12 +49,13 @@ class TransfomerDataset(SyntheticDataset):
 
     def __getitem__(self, idx):
         """Get an item from the dataset."""
-        if self.transform:
-            image = self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
-            return self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
-        # 0.5 normalization because of FID calculation
-        if self.transform_norm:
-            return self.transform_norm(self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx])
+        if self.use_transformation != "none":
+            if self.transform:
+                image = self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
+                return self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
+            # 0.5 normalization because of FID calculation
+            # if self.transform_norm:
+            #    return self.transform_norm(self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx])
         return self.images[idx]
 
     def transform_images(self, images):

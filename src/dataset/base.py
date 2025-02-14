@@ -16,7 +16,7 @@ class SyntheticDataset(Dataset):
         self.dataset_name = dataset_name
         self.n_classes = n_classes
         self.class_labels = class_labels
-        self.use_default_transformation = True
+        self.use_transformation = "default"
         self.use_convert_rgb = True  # dataset_name == "mnist"
 
     def __len__(self):
@@ -35,9 +35,9 @@ class SyntheticDataset(Dataset):
         """Set the convert_rgb flag."""
         self.use_convert_rgb = use_convert_rgb
 
-    def set_default_transformation(self, use_default_transformation):
-        """Set the default_transformation flag."""
-        self.use_default_transformation = use_default_transformation
+    def set_use_transformation(self, transformation_type: str):
+        """Set the default_transformation flag. Options: default, norm or none."""
+        self.use_transformation = transformation_type
 
     def get_transform(self):
         """Return the transform."""

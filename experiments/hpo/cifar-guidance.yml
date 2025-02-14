@@ -40,6 +40,9 @@ diffusion:
       - 5
 
 evaluation:
-  num-images: 5000
+  num-images: 4000
   viz-sample-size: 30
   certainty-threshold: 0.8 # this may be automatically computed in some way? (e.g. 1 - 1/n_classes)
+  mc-dropout:
+    n-samples: 15
+    threshold: 0.3

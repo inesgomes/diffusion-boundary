@@ -48,7 +48,7 @@ repos:
     -   id: pylint
         args: ['-d duplicate-code', '--disable=W0511, C0103, C0411, line-too-long,
               I1101, import-error, too-few-public-methods, too-many-arguments, too-many-locals,
-              too-many-instance-attributes', '--extension-pkg-allow-list=wandb', '--max-positional-arguments=8']
+              too-many-instance-attributes, too-many-branches', '--extension-pkg-allow-list=wandb', '--max-positional-arguments=8']
 
 -   repo: https://github.com/asottile/blacken-docs
     rev: 1.19.1

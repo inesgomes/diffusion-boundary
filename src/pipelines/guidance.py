@@ -54,7 +54,7 @@ class ClassifierGuidance(DiffusionPipeline):
         probs, logits = classifier.predict(images)
 
         # compute the metric
-        metric = compute_metric(guidance_type, probs, logits).mean()
+        metric = compute_metric(guidance_type, probs, logits=logits).mean()
 
         # compute the gradient
         grad = torch.autograd.grad(metric, images)[0]

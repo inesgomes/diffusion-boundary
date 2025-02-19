@@ -153,7 +153,7 @@ def curate_results(class_labels, probs, probs_dropout=None):
     metrics = BINARY_METRICS if probs.size(1) == 2 else MULTICLASS_METRICS
     metrics = list(set(metrics) | set(UNCERTAINTY_METRICS))
     for metric in metrics:
-        results[metric] = compute_metric(metric, probs, probs_dropout).detach().cpu().numpy()
+        results[metric] = compute_metric(metric, probs, probs_dropout=probs_dropout).detach().cpu().numpy()
 
     return results
 

@@ -103,7 +103,7 @@ def visualize_sample_synthetic_images(
 
     # prepare grid
     n_rows = (results.shape[0] + n_cols - 1) // n_cols
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(1.5 * n_cols, 2.5 * n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, 2.5 * n_rows))
     axes = axes.flatten()
 
     synth_dataset.set_use_transformation("none")

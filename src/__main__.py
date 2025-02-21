@@ -10,13 +10,13 @@ import wandb
 from diffusers import DDIMPipeline, DDPMPipeline, DiffusionPipeline, PNDMPipeline
 from dotenv import load_dotenv
 from tqdm import tqdm
+from transformers import CLIPModel, CLIPTokenizer
 
 from src.classifier.factory import ClassifierFactory
 from src.classifier.metrics import UNCERTAINTY_METRICS
 from src.dataset.aux import get_tst_dataset_streaming
 from src.dataset.factory import DatasetFactory
 from src.evaluation import (
-    calculate_fid_metric,
     calculate_synthetic_metrics,
     prepare_dataset_results,
     visualize_class_distributions,
@@ -53,16 +53,32 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
     # Handle custom pipeline logic if provided
     custom_pipeline = f"src/pipelines/{pipeline}.py" if pipeline else None
 
+    if diff_type == "sd":
+        # stable diffusion needs clip model
+        clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
+        tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+        # stable diffusion allows float16
+        pipe = pipeline_class.from_pretrained(
+            model,
+            custom_pipeline=custom_pipeline,
+            torch_dtype=torch.float16,
+            clip_model=clip_model,
+            tokenizer=tokenizer,
+            cache_dir=os.getenv("HF_MODELS_CACHE"),
+        ).to(device)
+        pipe.enable_attention_slicing()
+        return pipe
+
     # Load and return the pipeline
     return pipeline_class.from_pretrained(
         model, custom_pipeline=custom_pipeline, cache_dir=os.getenv("HF_MODELS_CACHE")
     ).to(device)
 
 
-def create_arguments(pipeline_name, pipeline_type, classifier, dataset, diffusion_arguments):
+def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
     """Get arguments for the diffusion pipeline. Currently only for guidance pipeline."""
     args = {}
-    if pipeline_name == "guidance":
+    if pipeline_name in ("guidance", "latentguidance"):
         args.update(
             {
                 "classifier": classifier,
@@ -72,30 +88,36 @@ def create_arguments(pipeline_name, pipeline_type, classifier, dataset, diffusio
                 "guidance_freq": diffusion_arguments["guidance-freq"],
             }
         )
-    if pipeline_type == "text-to-image":
-        # TODO add latents and guidance_scale
-        args.update({"prompt": diffusion_arguments["prompt"]})
+    if pipeline_name == "latentguidance":
+        args.update(
+            {
+                "prompt": diffusion_arguments["classes"][0],  # TODO: redo to allow muliple classes
+                "guidance_scale": diffusion_arguments["guidance-scale"],
+                "height": diffusion_arguments["pixel-size"],
+                "width": diffusion_arguments["pixel-size"],
+            }
+        )
     return args
 
 
-def generate_images(diffusion_settings, classifier, dataset, num_images, batch_size, seed, device):
+def generate_images(diffusion_settings, classifier, dataset, num_images, batch_size, device):
     """Generate images using the diffusion pipeline described in the config file."""
     # get diffusion pipeline
     pipe = create_pipeline(
         diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
     )
     # get arguments for the pipeline
-    args = create_arguments(
-        diffusion_settings["pipeline"], diffusion_settings["type"], classifier, dataset, diffusion_settings["args"]
-    )
+    args = create_arguments(diffusion_settings["pipeline"], classifier, dataset, diffusion_settings["args"])
 
     # generate images in batches
     num_batches = math.ceil(num_images / batch_size)
     images = []
+    generator = torch.Generator()
     for _ in tqdm(range(num_batches), desc="Generating images"):
         batch_size_to_use = min(batch_size, num_images - len(images))
+        generator.seed()
         batch_images = pipe(
-            generator=torch.Generator().manual_seed(seed),
+            generator=generator,
             num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
             batch_size=batch_size_to_use,
             **args,
@@ -127,7 +149,6 @@ def stress_test_classifier(
             "certainty-threshold": evaluation_config["certainty-threshold"],
             "classsifier": classifier_config["name"],
             "diffusion": diffusion_config_txt,
-            "seed": default_configs["seed"],
             "log-images": default_configs["log-images"],
         },
     )
@@ -185,7 +206,6 @@ def stress_test_classifier(
         synth_dataset,
         evaluation_config["num-images"],
         default_configs["batch-size"],
-        default_configs["seed"],
         default_configs["device"],
     )
     synth_dataset.set_images(images)
@@ -233,11 +253,12 @@ def stress_test_classifier(
     if default_configs["log-plots"]:
         wandb.log({"umap": wandb.Image(features_umap)})
 
+    # todo: NOT WORKING FOR IMAGENET
     # FID score (calculated seperatly because it needs a different feature extractor)
-    fid_value = calculate_fid_metric(
-        real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
-    )
-    wandb.log({"FID_score": fid_value})
+    # fid_value = calculate_fid_metric(
+    #    real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
+    # )
+    # wandb.log({"FID_score": fid_value})
 
     # from probabilities
 
@@ -278,6 +299,7 @@ def stress_test_classifier(
         evaluation_config["viz-sample-size"],
         sort_metric,
         default_configs["display-rgb"],
+        n_cols=5,
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
     wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
@@ -319,6 +341,7 @@ def main(configuration):
                     diffusion_config,
                     evaluation_config,
                 )
+                i += 1
 
 
 if __name__ == "__main__":

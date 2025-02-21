@@ -1,0 +1,41 @@
+# WORKING
+project: 20250219_text_image_diffusion
+
+user-args: 
+  device: cuda:0
+  seed: 42
+  batch-size: 1
+  log-images: False
+  log-plots: True
+  display-rgb: True
+
+dataset:
+  name: ILSVRC/imagenet-1k
+  n_classes: 1000
+  split: train
+
+classifier:
+  name: microsoft/resnet-50 # imagenet-1k 224x224
+  lib: transformers
+
+diffusion:
+  pipeline: latentguidance
+  name: CompVis/stable-diffusion-v1-4
+  type: sd
+  args:
+    pixel-size: 512
+    num-inference-steps: 20
+    classes:
+      - Border collie
+    guidance: entropy
+    alpha: 1
+    guidance-freq: 1
+    guidance-scale: 5
+
+evaluation:
+  num-images: 30
+  viz-sample-size: 10
+  certainty-threshold: 0.8
+  mc-dropout:
+    n-samples: 15
+    threshold: 0.3

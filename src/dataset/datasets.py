@@ -49,13 +49,15 @@ class TransfomerDataset(SyntheticDataset):
 
     def __getitem__(self, idx):
         """Get an item from the dataset."""
-        if self.use_transformation != "none":
-            if self.transform:
+        if self.transform:
+            if self.use_transformation == "default":
                 image = self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
                 return self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
-            # 0.5 normalization because of FID calculation
-            # if self.transform_norm:
-            #    return self.transform_norm(self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx])
+            if self.use_transformation == "norm":
+                # TODO not working
+                image = self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
+                image_tensor = self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
+                return (image_tensor * 2) - 1
         return self.images[idx]
 
     def transform_images(self, images):

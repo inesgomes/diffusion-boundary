@@ -23,13 +23,12 @@ diffusion:
   name: CompVis/stable-diffusion-v1-4
   type: sd
   args:
-    pixel-size: 512
     num-inference-steps: 20
     classes:
       - Border collie
-    guidance: entropy
+    guidance: norm-entropy
     alpha: 1
-    guidance-freq: 1
+    guidance-freq: 0
     guidance-scale: 5
 
 evaluation:
@@ -37,5 +36,5 @@ evaluation:
   viz-sample-size: 10
   certainty-threshold: 0.8
   mc-dropout:
-    n-samples: 15
+    n-samples: 1
     threshold: 0.3

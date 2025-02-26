@@ -1,13 +1,15 @@
 """
 Module that contatins the code to guide the diffusion process with a classifier.
 
-tutorial:https://huggingface.co/learn/diffusion-course/en/unit3/2
+tutorial:
+ - https://huggingface.co/learn/diffusion-course/en/unit3/2
+ - https://huggingface.co/blog/stable_diffusion
 """
 
 from typing import List, Optional, Tuple, Union
 
 import torch
-import torch.nn.functional as F
+import wandb
 from diffusers import DiffusionPipeline, ImagePipelineOutput
 
 from src.classifier.metrics import compute_metric
@@ -30,63 +32,64 @@ class LatentClassifierGuidance(DiffusionPipeline):
             scheduler=scheduler,
         )
 
+    def decode_latent_to_img(self, latent_in):
+        """Decode the latent to an image."""
+        latents = 1 / self.vae.config.scaling_factor * latent_in
+        image = self.vae.decode(latents).sample
+        image = image / 2 + 0.5
+        image = torch.clamp(image, 0.0, 1.0)
+        return image
+
+    def encode_image_to_latent(self, img_in):
+        """Encode the image to a latent."""
+        img_rescaled = 2 * img_in[None, :, :, :] - 1
+        latent = self.vae.encode(img_rescaled).latent_dist.mean
+        latent = latent * self.vae.config.scaling_factor
+        return latent
+
     def tensor_to_numpy(self, images):
         """Transform the tensors to numpy."""
         images = (images / 2 + 0.5).clamp(0, 1)
         images = images.cpu().permute(0, 2, 3, 1).detach().numpy()
         return images
 
+    def latent_to_tensor(self, latents):
+        """Transform the latents to numpy."""
+        original_lat = 1 / self.vae.config.scaling_factor * latents
+        # clip the latents (not sure if this is the best way to)
+        original_lat = original_lat / (original_lat.abs().max() + 1e-6)
+        # decode the latents
+        images = self.vae.decode(original_lat).sample
+        # process the images
+        images = images / 2 + 0.5
+        images = images - images.min().detach()
+        images = images / images.max().detach()
+        return images
+
     @torch.enable_grad()
-    def calculate_gradient(self, classifier, transformation, latents, t, text_embeddings, guidance_type, pixel_size):
+    def calculate_gradient(self, classifier, transformation, latents, t, noise_prediction, guidance_type):
         """Calculate the gradient of the selected metric with respect to the images."""
+        # TODO consider new noise prediction just for the original latents (without the null embeddings)
+        # TODO: not working
+
         # prediction of the noise model for the current timestep
-        latents = latents.detach().requires_grad_()
-        noise_prediction = self.unet(latents, t, encoder_hidden_states=text_embeddings, return_dict=False)[0]
+        latents = latents.detach().requires_grad_(True).to(self.device)
+        latents_0 = self.scheduler.step(noise_prediction, t, latents).pred_original_sample
 
-        # TODO: what is going on in here?
-        alpha_prod_t = self.scheduler.alphas_cumprod[t]
-        beta_prod_t = 1 - alpha_prod_t
-        pred_original_sample = (latents - beta_prod_t ** (0.5) * noise_prediction) / alpha_prod_t ** (0.5)
-        fac = torch.sqrt(beta_prod_t)
-        images = pred_original_sample * (fac) + latents * (1 - fac)
+        # latent to tensor and transform
+        images_t = self.latent_to_tensor(latents_0)
+        images = transformation.transform_images(images_t)
 
-        # TODO: why not just doing this?
-        # latents = 1 / self.vae.config.scaling_factor * latents
-        # images = self.vae.decode(latents).sample
-
-        # TODO: change this -> HEAVY (is there a better way?)
-        original_n_channels = images.shape[1]  # L vs RGB
-
-        if transformation is not None:
-            images_pil = self.numpy_to_pil(self.tensor_to_numpy(images))
-            images = transformation.transform_images(images_pil).to(self.device)
-
-        # Enable gradients for the pixel images
-        # images = images.clone().detach().requires_grad_(True).to(self.device)
-        # images = images.clone().requires_grad_(True).to(self.device)
-
-        # compute the probabilities
+        # compute the probabilities and the metric
         probs, logits = classifier.predict(images)
-
-        # compute the metric
         metric = compute_metric(guidance_type, probs, logits=logits).mean()
 
-        # compute the gradient
-        grad = torch.autograd.grad(metric, images)[0]
+        # compute the gradient, in relation to the original latent
+        grad = torch.autograd.grad(metric, latents)[0]
 
-        # scale gradients for same scale as images
-        scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * images.norm(2).detach()
+        # scale gradients
+        scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * latents.norm(2).detach()
 
-        # resize if needed
-        if scaled_gradients.shape[2] != pixel_size:
-            scaled_gradients = F.interpolate(grad, size=(pixel_size, pixel_size), mode="bilinear", align_corners=False)
-
-        # grayscale if needed -> this is a fix to the problem of the classifier outputting 3 channels when the diffuser only uses one channel
-        if (original_n_channels == 1) & (scaled_gradients.shape[1] == 3):
-            grayscale_gradient = scaled_gradients.mean(dim=1, keepdim=True)
-            return metric, grayscale_gradient
-
-        # normal return
         return metric, scaled_gradients
 
     @torch.no_grad()
@@ -111,16 +114,17 @@ class LatentClassifierGuidance(DiffusionPipeline):
         """
         prompt = kwargs.get("prompt", None)
         guidance_scale = kwargs.get("guidance_scale", 1.0)
-        height = kwargs.get("height", 512)
-        width = kwargs.get("width", 512)
 
-        # classifier = kwargs.get("classifier", None)
-        # transformation = kwargs.get("transformation", None)
-        # alpha = kwargs.get("alpha", None)
-        # guidance_type = kwargs.get("guidance_type", None)
-        # guidance_freq = kwargs.get("guidance_freq", 1)
+        classifier = kwargs.get("classifier", None)
+        transformation = kwargs.get("transformation", None)
+        alpha = kwargs.get("alpha", None)
+        guidance_type = kwargs.get("guidance_type", None)
+        guidance_freq = kwargs.get("guidance_freq", 1)
 
-        # TODO: prepare prompt for multiple images?
+        # this is the height and weight of the original image, not sure if getting this number from the VAE is correct
+        height = self.vae.config.sample_size
+        width = self.vae.config.sample_size
+
         # prompt = [prompt] * batch_size
 
         # tokenize prompt and get embeddings
@@ -154,13 +158,12 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
 
-        # K-LMS scheduler needs to multiply the latents by its sigma values
+        # the k-lms scheduler needs to multiply the latens by its sigma values
         latents = latents * self.scheduler.init_noise_sigma
 
-        for t in self.progress_bar(self.scheduler.timesteps):
+        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
             # expand the latents to avoid doing two forward passes
             latent_model_input = torch.cat([latents] * 2)
-
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
             # 1. predict noise residual
@@ -173,17 +176,15 @@ class LatentClassifierGuidance(DiffusionPipeline):
             noise_prediction = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
             # 3. compute classifier guidance (if frequency allows)
-            # if (guidance_freq != 0) and (i % guidance_freq == 0):
-            # TODO: why?
-            # txt_embd_for_guidance = text_embd.chunk(2)[1]
-            # metric, grad = self.calculate_gradient(
-            #    classifier, transformation, latents, t, txt_embd_for_guidance, guidance_type, self.unet.config.sample_size
-            # )
-            # latents = latents.detach() + alpha * grad
+            if (guidance_freq != 0) and (i % guidance_freq == 0):
+                metric, grad = self.calculate_gradient(
+                    classifier, transformation, latents, t, noise_prediction, guidance_type
+                )
+                latents += alpha * grad
 
-            # log
-            # wandb.log({"mean-guidance": metric})
-            # wandb.log({"loss-guidance": grad})
+                # log
+                wandb.log({"mean-guidance": metric})
+                wandb.log({"loss-guidance": grad})
 
             # 4. predict the previous noisy sample x_t -> x_t-1
             # latents = self.scheduler.step(noise_prediction, t, latents, **{}, return_dict=False)[0]

@@ -7,7 +7,13 @@ import os
 import pandas as pd
 import torch
 import wandb
-from diffusers import DDIMPipeline, DDPMPipeline, DiffusionPipeline, PNDMPipeline
+from diffusers import (
+    DDIMPipeline,
+    DDPMPipeline,
+    DiffusionPipeline,
+    LMSDiscreteScheduler,
+    PNDMPipeline,
+)
 from dotenv import load_dotenv
 from tqdm import tqdm
 from transformers import CLIPModel, CLIPTokenizer
@@ -17,6 +23,7 @@ from src.classifier.metrics import UNCERTAINTY_METRICS
 from src.dataset.aux import get_tst_dataset_streaming
 from src.dataset.factory import DatasetFactory
 from src.evaluation import (
+    calculate_fid_metric,
     calculate_synthetic_metrics,
     prepare_dataset_results,
     visualize_class_distributions,
@@ -57,6 +64,11 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
         # stable diffusion needs clip model
         clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
         tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+        # use KLMS scheduler instead
+        scheduler = LMSDiscreteScheduler(
+            beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", num_train_timesteps=1000
+        )
+
         # stable diffusion allows float16
         pipe = pipeline_class.from_pretrained(
             model,
@@ -64,6 +76,7 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
             torch_dtype=torch.float16,
             clip_model=clip_model,
             tokenizer=tokenizer,
+            scheduler=scheduler,
             cache_dir=os.getenv("HF_MODELS_CACHE"),
         ).to(device)
         pipe.enable_attention_slicing()
@@ -93,8 +106,6 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
             {
                 "prompt": diffusion_arguments["classes"][0],  # TODO: redo to allow muliple classes
                 "guidance_scale": diffusion_arguments["guidance-scale"],
-                "height": diffusion_arguments["pixel-size"],
-                "width": diffusion_arguments["pixel-size"],
             }
         )
     return args
@@ -255,10 +266,10 @@ def stress_test_classifier(
 
     # todo: NOT WORKING FOR IMAGENET
     # FID score (calculated seperatly because it needs a different feature extractor)
-    # fid_value = calculate_fid_metric(
-    #    real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
-    # )
-    # wandb.log({"FID_score": fid_value})
+    fid_value = calculate_fid_metric(
+        real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
+    )
+    wandb.log({"FID_score": fid_value})
 
     # from probabilities
 

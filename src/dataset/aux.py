@@ -8,33 +8,65 @@ Returns:
 import random
 from functools import partial
 
+import torch
+import torchvision.transforms as T
 from datasets import Dataset, load_dataset
-from torchvision import transforms
 
 TRANSFORMATIONS = {
-    "cifar10": transforms.Compose(
+    "mnist": T.Compose(
         [
-            transforms.Resize(256),
-            transforms.CenterCrop(256),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=(0.49139968, 0.48215827, 0.44653124),
-                std=(0.24703233, 0.24348505, 0.26158768),
-            ),
+            T.ToTensor(),
+            T.Normalize(mean=(0.5,), std=(0.5,)),
         ]
     ),
-    "cifar10_norm": transforms.Compose(
+    # manual imitation of the default transformation of the pretrained model, adapted for tensor
+    "farleyknight-org-username/vit-base-mnist_tensor": T.Compose(
         [
-            transforms.Resize(256),
-            transforms.CenterCrop(256),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
+            T.Lambda(lambda x: x.expand(-1, 3, -1, -1) if x.shape[1] == 1 else x),
+            T.Lambda(lambda x: (x + 1) / 2),
+            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
     ),
-    "mnist": transforms.Compose(
+    # manual imitation of the default transformation of the pretrained model
+    "aaraki/vit-base-patch16-224-in21k-finetuned-cifar10_tensor": T.Compose(
         [
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5,), std=(0.5,)),
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
+            T.Lambda(lambda x: (x + 1) / 2),  # Convert from [-1,1] -> [0,1]
+            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        ]
+    ),
+    # manual imitation of the default transformation of the pretrained model microsoft/resnet-50
+    "microsoft/resnet-50": T.Compose(
+        [
+            T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
+            T.Resize(224, interpolation=T.InterpolationMode.BILINEAR),
+            T.CenterCrop(int(224 * 0.875)),
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    ),
+    # normalized between [-1, 1] option
+    "microsoft/resnet-50_norm": T.Compose(
+        [
+            T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
+            T.Resize(224, interpolation=T.InterpolationMode.BILINEAR),
+            T.CenterCrop(int(224 * 0.875)),
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
+            T.ToTensor(),
+            T.Lambda(lambda x: x * 2 - 1),
+            # T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ]
+    ),
+    # tensor option
+    "microsoft/resnet-50_tensor": T.Compose(
+        [
+            T.Resize(224, interpolation=T.InterpolationMode.BILINEAR),
+            T.CenterCrop(int(224 * 0.875)),
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
+            T.ConvertImageDtype(torch.float32),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     ),
 }

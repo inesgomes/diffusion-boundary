@@ -73,7 +73,7 @@ def visualize_top_synthetic_metric(images_dataset, results, sort_metric, display
 
     fig, axes = plt.subplots(1, N_SAMPLES, figsize=(1.5 * N_SAMPLES, 2.5))
 
-    images_dataset.set_use_transformation("none")
+    images_dataset.set_use_transformation("NONE")
     for i, (_, row) in enumerate(top_results.iterrows()):
         if not display_rgb:
             axes[i].imshow(images_dataset[row["image_id"]].convert("L"), cmap="gray")
@@ -82,7 +82,7 @@ def visualize_top_synthetic_metric(images_dataset, results, sort_metric, display
         label = f"{row[sort_metric]:.2f}"
         axes[i].set_title(label, fontsize=8)
         axes[i].axis("off")
-    images_dataset.set_use_transformation("default")
+    images_dataset.set_use_transformation("DEFAULT")
 
     return fig
 
@@ -103,10 +103,10 @@ def visualize_sample_synthetic_images(
 
     # prepare grid
     n_rows = (results.shape[0] + n_cols - 1) // n_cols
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, 2.5 * n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, 3 * n_rows))
     axes = axes.flatten()
 
-    synth_dataset.set_use_transformation("none")
+    synth_dataset.set_use_transformation("NONE")
 
     for i, (_, row) in enumerate(results.iterrows()):
         if not display_rgb:
@@ -118,7 +118,7 @@ def visualize_sample_synthetic_images(
         axes[i].set_title(label, fontsize=8)
         axes[i].axis("off")
 
-    synth_dataset.set_use_transformation("default")
+    synth_dataset.set_use_transformation("DEFAULT")
 
     return fig, results
 
@@ -424,9 +424,9 @@ def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
     extractor = ExtractorFactory.model_from_name(name="inception_fid").to(device)
 
     # dataloader
-    real_dataset.set_use_transformation("norm")
+    real_dataset.set_use_transformation("NORM")
     real_loader = DataLoader(real_dataset, batch_size=batch_size, shuffle=False, num_workers=6)
-    synth_dataset.set_use_transformation("norm")
+    synth_dataset.set_use_transformation("NORM")
     synth_loader = DataLoader(synth_dataset, batch_size=batch_size, shuffle=False, num_workers=6)
 
     # Extract features for real dataset
@@ -448,7 +448,7 @@ def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
 
     fid_result = FrechetDistance().compute(real_features, fake_features)
 
-    real_dataset.set_use_transformation("default")
-    synth_dataset.set_use_transformation("default")
+    real_dataset.set_use_transformation("DEFAULT")
+    synth_dataset.set_use_transformation("DEFAULT")
 
     return fid_result.value[0]

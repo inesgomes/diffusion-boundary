@@ -4,6 +4,7 @@ Module that contatins the code to guide the diffusion process with a classifier.
 tutorial:
  - https://huggingface.co/learn/diffusion-course/en/unit3/2
  - https://huggingface.co/blog/stable_diffusion
+ - https://github.com/huggingface/diffusers/blob/b69fd990ad8026f21893499ab396d969b62bb8cc/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L982
 """
 
 from typing import List, Optional, Tuple, Union
@@ -32,65 +33,44 @@ class LatentClassifierGuidance(DiffusionPipeline):
             scheduler=scheduler,
         )
 
-    def decode_latent_to_img(self, latent_in):
-        """Decode the latent to an image."""
-        latents = 1 / self.vae.config.scaling_factor * latent_in
-        image = self.vae.decode(latents).sample
-        image = image / 2 + 0.5
-        image = torch.clamp(image, 0.0, 1.0)
-        return image
-
-    def encode_image_to_latent(self, img_in):
-        """Encode the image to a latent."""
-        img_rescaled = 2 * img_in[None, :, :, :] - 1
-        latent = self.vae.encode(img_rescaled).latent_dist.mean
-        latent = latent * self.vae.config.scaling_factor
-        return latent
-
     def tensor_to_numpy(self, images):
         """Transform the tensors to numpy."""
         images = (images / 2 + 0.5).clamp(0, 1)
         images = images.cpu().permute(0, 2, 3, 1).detach().numpy()
         return images
 
-    def latent_to_tensor(self, latents):
-        """Transform the latents to numpy."""
-        original_lat = 1 / self.vae.config.scaling_factor * latents
-        # clip the latents (not sure if this is the best way to)
-        original_lat = original_lat / (original_lat.abs().max() + 1e-6)
-        # decode the latents
-        images = self.vae.decode(original_lat).sample
-        # process the images
-        images = images / 2 + 0.5
-        images = images - images.min().detach()
-        images = images / images.max().detach()
-        return images
-
     @torch.enable_grad()
-    def calculate_gradient(self, classifier, transformation, latents, t, noise_prediction, guidance_type):
+    def calculate_gradient(self, classifier, transformation, latents, prompt_embd, t, guidance_type, alpha):
         """Calculate the gradient of the selected metric with respect to the images."""
-        # TODO consider new noise prediction just for the original latents (without the null embeddings)
-        # TODO: not working
-
-        # prediction of the noise model for the current timestep
+        # start the gradient calculation
         latents = latents.detach().requires_grad_(True).to(self.device)
+
+        # scale them
+        latent_scaled = self.scheduler.scale_model_input(latents, t)
+
+        # make new noise prediction, only for the original latent and original prompt
+        noise_prediction = self.unet(latent_scaled, t, encoder_hidden_states=prompt_embd).sample
+
+        # predict the latent for the current timestep
         latents_0 = self.scheduler.step(noise_prediction, t, latents).pred_original_sample
 
-        # latent to tensor and transform
-        images_t = self.latent_to_tensor(latents_0)
-        images = transformation.transform_images(images_t)
+        # decode the latents to images and transform to the classifier format
+        original_lat = 1 / self.vae.config.scaling_factor * latents_0
+        images = self.vae.decode(original_lat).sample
+        images_t = transformation.transform_images(images)
 
         # compute the probabilities and the metric
-        probs, logits = classifier.predict(images)
+        probs, logits = classifier.predict(images_t)
         metric = compute_metric(guidance_type, probs, logits=logits).mean()
+        # weight the metric with our alpha hyperparameter
+        loss = metric * alpha
 
         # compute the gradient, in relation to the original latent
-        grad = torch.autograd.grad(metric, latents)[0]
+        grad = torch.autograd.grad(loss, latents)[0]
 
-        # scale gradients
-        scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * latents.norm(2).detach()
-
-        return metric, scaled_gradients
+        # scale gradients (?)
+        # scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * latents.norm(2).detach()
+        return metric, grad
 
     @torch.no_grad()
     def __call__(
@@ -142,6 +122,8 @@ class LatentClassifierGuidance(DiffusionPipeline):
         uncond_tok = self.tokenizer([""], padding="max_length", max_length=max_length, return_tensors="pt")
         uncond_emb = self.text_encoder(uncond_tok.input_ids.to(self.device))[0]
 
+        # TODO: if guidance=1, it means that I don't need to do cfg. So I need to make that implementation
+
         # classifier-free guidance, needs two forward passes: one with the conditioned input, and another with the unconditional embeddings
         text_embd = torch.cat([uncond_emb, prompt_emb])
 
@@ -156,9 +138,9 @@ class LatentClassifierGuidance(DiffusionPipeline):
         ).to(self.device)
 
         # set step values
-        self.scheduler.set_timesteps(num_inference_steps)
+        self.scheduler.set_timesteps(num_inference_steps + 1)
 
-        # the k-lms scheduler needs to multiply the latens by its sigma values
+        # the k-lms scheduler needs to multiply the latents by its sigma values
         latents = latents * self.scheduler.init_noise_sigma
 
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
@@ -178,21 +160,20 @@ class LatentClassifierGuidance(DiffusionPipeline):
             # 3. compute classifier guidance (if frequency allows)
             if (guidance_freq != 0) and (i % guidance_freq == 0):
                 metric, grad = self.calculate_gradient(
-                    classifier, transformation, latents, t, noise_prediction, guidance_type
+                    classifier, transformation, latents, prompt_emb, t, guidance_type, alpha
                 )
-                latents += alpha * grad
+                latents = latents.detach() + grad
 
                 # log
                 wandb.log({"mean-guidance": metric})
                 wandb.log({"loss-guidance": grad})
 
             # 4. predict the previous noisy sample x_t -> x_t-1
-            # latents = self.scheduler.step(noise_prediction, t, latents, **{}, return_dict=False)[0]
             latents = self.scheduler.step(noise_prediction, t, latents).prev_sample
 
         # deliver the synthetic images
-        latents = 1 / self.vae.config.scaling_factor * latents
-        images = self.vae.decode(latents).sample
+        latents_ori = 1 / self.vae.config.scaling_factor * latents
+        images = self.vae.decode(latents_ori).sample
 
         images = self.tensor_to_numpy(images)
         if output_type == "pil":

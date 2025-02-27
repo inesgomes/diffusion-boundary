@@ -9,9 +9,9 @@ import torch
 import wandb
 from diffusers import (
     DDIMPipeline,
+    DDIMScheduler,
     DDPMPipeline,
     DiffusionPipeline,
-    LMSDiscreteScheduler,
     PNDMPipeline,
 )
 from dotenv import load_dotenv
@@ -64,10 +64,6 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
         # stable diffusion needs clip model
         clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
         tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
-        # use KLMS scheduler instead
-        scheduler = LMSDiscreteScheduler(
-            beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", num_train_timesteps=1000
-        )
 
         # stable diffusion allows float16
         pipe = pipeline_class.from_pretrained(
@@ -76,9 +72,12 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
             torch_dtype=torch.float16,
             clip_model=clip_model,
             tokenizer=tokenizer,
-            scheduler=scheduler,
             cache_dir=os.getenv("HF_MODELS_CACHE"),
         ).to(device)
+        # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
+        pipe.scheduler = DDIMScheduler.from_config(
+            pipe.scheduler.config
+        )  # , rescale_betas_zero_snr=True, timestep_spacing="trailing")
         pipe.enable_attention_slicing()
         return pipe
 
@@ -106,6 +105,7 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
             {
                 "prompt": diffusion_arguments["classes"][0],  # TODO: redo to allow muliple classes
                 "guidance_scale": diffusion_arguments["guidance-scale"],
+                "guidance_rescale": 0.7,
             }
         )
     return args
@@ -264,7 +264,6 @@ def stress_test_classifier(
     if default_configs["log-plots"]:
         wandb.log({"umap": wandb.Image(features_umap)})
 
-    # todo: NOT WORKING FOR IMAGENET
     # FID score (calculated seperatly because it needs a different feature extractor)
     fid_value = calculate_fid_metric(
         real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]

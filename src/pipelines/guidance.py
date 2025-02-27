@@ -95,17 +95,16 @@ class ClassifierGuidance(DiffusionPipeline):
         self.scheduler.set_timesteps(num_inference_steps)
 
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
-
             # 1. predict noise model_output
             noise_prediction = self.unet(images, t).sample
 
+            # 2. compute guidance
             if (guidance_freq != 0) and (i % guidance_freq == 0):
-                # 2. compute guidance
-
                 # Get gradient
                 metric, grad = self.calculate_gradient(
                     classifier, transformation, images, noise_prediction, t, guidance_type, alpha
                 )
+                # update images
                 images = images.detach() + grad
 
                 # log

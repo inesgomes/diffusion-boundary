@@ -2,7 +2,7 @@
 project: 20250219_text_image_diffusion
 
 user-args: 
-  device: cuda:0
+  device: cuda:1
   seed: 42
   batch-size: 1
   log-images: False
@@ -26,15 +26,15 @@ diffusion:
     num-inference-steps: 20
     classes:
       - Border collie
-    guidance: norm-entropy
-    alpha: 1
-    guidance-freq: 0
-    guidance-scale: 5
+    guidance: cross-entropy
+    alpha: 10
+    guidance-freq: 1
+    guidance-scale: 3
 
 evaluation:
-  num-images: 30
+  num-images: 50
   viz-sample-size: 10
   certainty-threshold: 0.8
   mc-dropout:
-    n-samples: 1
+    n-samples: 15
     threshold: 0.3

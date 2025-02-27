@@ -47,7 +47,7 @@ class TransfomerDataset(SyntheticDataset):
             raise ValueError(f"Tensor transformation for {model_name} not defined.")
         transform_tensor = TRANSFORMATIONS[f"{model_name}_tensor"]
         # normalized transformation, if exists
-        transform_norm = TRANSFORMATIONS[f"{dataset_name}_norm"] if f"{dataset_name}_norm" in TRANSFORMATIONS else None
+        transform_norm = TRANSFORMATIONS[f"{model_name}_norm"] if f"{model_name}_norm" in TRANSFORMATIONS else None
 
         super().__init__(
             dataset_name,

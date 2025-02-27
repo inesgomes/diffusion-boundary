@@ -31,7 +31,7 @@ repos:
     -   id: pre-commit-update
 
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.7
+    rev: v0.9.8
     hooks:
     -   id: ruff
         args: ['--fix', '--line-length=120', '--exit-non-zero-on-fix', '--show-fixes']
@@ -70,7 +70,7 @@ repos:
     -   id: seed-isort-config
 
 -   repo: https://github.com/pycqa/isort
-    rev: 6.0.0
+    rev: 6.0.1
     hooks:
     -   id: isort
         args: ['--profile', 'black', '-o', 'wandb', '-o', 'datasets']

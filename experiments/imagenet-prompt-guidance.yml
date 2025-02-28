@@ -23,16 +23,17 @@ diffusion:
   name: CompVis/stable-diffusion-v1-4
   type: sd
   args:
-    num-inference-steps: 20
+    num-inference-steps: 30
     classes:
       - Border collie
-    guidance: cross-entropy
+    guidance: norm-entropy
     alpha: 10
     guidance-freq: 1
     guidance-scale: 3
+    guidance-rescale: 0.7
 
 evaluation:
-  num-images: 50
+  num-images: 10
   viz-sample-size: 10
   certainty-threshold: 0.8
   mc-dropout:

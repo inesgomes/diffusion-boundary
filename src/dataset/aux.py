@@ -40,10 +40,9 @@ TRANSFORMATIONS = {
     "microsoft/resnet-50_tensor": T.Compose(
         [
             T.Resize(224, interpolation=T.InterpolationMode.BILINEAR),
-            T.CenterCrop(int(224 * 0.875)),
-            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
+            T.CenterCrop(int(224 * 0.875)),  # to comment
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),  # to comment
             T.ConvertImageDtype(torch.float32),
-            T.Lambda(lambda x: (x + 1) / 2),
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     ),

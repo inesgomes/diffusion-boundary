@@ -40,23 +40,34 @@ class LatentClassifierGuidance(DiffusionPipeline):
         return images
 
     @torch.enable_grad()
-    def calculate_gradient(self, classifier, transformation, latents, prompt_embd, t, guidance_type, alpha):
+    def calculate_gradient(self, classifier, transformation, latents, noise_prediction, guidance_type, alpha):
         """Calculate the gradient of the selected metric with respect to the images."""
         # start the gradient calculation
         latents = latents.detach().requires_grad_(True).to(self.device)
 
         # scale them
-        latent_scaled = self.scheduler.scale_model_input(latents, t)
+        # latent_scaled = self.scheduler.scale_model_input(latents, t)
 
         # make new noise prediction, only for the original latent and original prompt
-        noise_prediction = self.unet(latent_scaled, t, encoder_hidden_states=prompt_embd).sample
+        # noise_prediction = self.unet(latents, t, encoder_hidden_states=prompt_embd).sample
 
+        # OLD CODE
         # predict the latent for the current timestep
-        latents_0 = self.scheduler.step(noise_prediction, t, latents).pred_original_sample
+        # latents_0 = self.scheduler.step(noise_prediction, t, latents).pred_original_sample
+
+        # Save current sigma and compute the original sample according to epsilon prediction type
+        sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
+        latents_0 = latents - sigma_t * noise_prediction
+        # latents_0 = (latents - sigma_t * noise_prediction) / (1 + sigma_t**2).sqrt() # from chatgpt
 
         # decode the latents to images and transform to the classifier format
         original_lat = 1 / self.vae.config.scaling_factor * latents_0
         images = self.vae.decode(original_lat).sample
+        # tensor should be normalized between [0, 1]
+        images = images / 2 + 0.5
+        images = images - images.min().detach()
+        images = images / images.max().detach()
+        # classifier transformation
         images_t = transformation.transform_images(images)
 
         # compute the probabilities and the metric
@@ -68,9 +79,22 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # compute the gradient, in relation to the original latent
         grad = torch.autograd.grad(loss, latents)[0]
 
-        # scale gradients (?)
+        # scale gradients
         # scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * latents.norm(2).detach()
+
         return metric, grad
+
+    def apply_cfg(self, noise_pred_text, noise_pred_uncond, guidance_scale, rescale):
+        """Rescale cfg according to https://arxiv.org/pdf/2305.08891."""
+        # Apply regular classifier-free guidance.
+        noise_prediction = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+        # Calculate standard deviations.
+        std_pos = noise_pred_text.std([1, 2, 3], keepdim=True)
+        std_cfg = noise_prediction.std([1, 2, 3], keepdim=True)
+        # Apply guidance rescale with fused operations.
+        factor = std_pos / std_cfg
+        factor = rescale * factor + (1 - rescale)
+        return noise_prediction * factor
 
     @torch.no_grad()
     def __call__(
@@ -80,6 +104,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         num_inference_steps: int = 100,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
+        log_denoising_images: bool = False,
         **kwargs,
     ) -> Union[ImagePipelineOutput, Tuple]:
         """_summary_ Method to guide the diffusion process with a classifier.
@@ -94,6 +119,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         """
         prompt = kwargs.get("prompt", None)
         guidance_scale = kwargs.get("guidance_scale", 1.0)
+        guidance_rescale = kwargs.get("guidance_rescale", 1.0)
 
         classifier = kwargs.get("classifier", None)
         transformation = kwargs.get("transformation", None)
@@ -138,7 +164,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         ).to(self.device)
 
         # set step values
-        self.scheduler.set_timesteps(num_inference_steps + 1)
+        self.scheduler.set_timesteps(num_inference_steps)
 
         # the k-lms scheduler needs to multiply the latents by its sigma values
         latents = latents * self.scheduler.init_noise_sigma
@@ -155,12 +181,13 @@ class LatentClassifierGuidance(DiffusionPipeline):
             noise_pred_uncond, noise_pred_text = noise_prediction.chunk(2)
 
             # formula from the classifier free guidance
-            noise_prediction = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+            noise_prediction_cfg = self.apply_cfg(noise_pred_text, noise_pred_uncond, guidance_scale, guidance_rescale)
 
             # 3. compute classifier guidance (if frequency allows)
+            metric = -1
             if (guidance_freq != 0) and (i % guidance_freq == 0):
                 metric, grad = self.calculate_gradient(
-                    classifier, transformation, latents, prompt_emb, t, guidance_type, alpha
+                    classifier, transformation, latents, noise_pred_text, guidance_type, alpha
                 )
                 latents = latents.detach() + grad
 
@@ -169,7 +196,15 @@ class LatentClassifierGuidance(DiffusionPipeline):
                 wandb.log({"loss-guidance": grad})
 
             # 4. predict the previous noisy sample x_t -> x_t-1
-            latents = self.scheduler.step(noise_prediction, t, latents).prev_sample
+            latents = self.scheduler.step(noise_prediction_cfg, t, latents).prev_sample
+
+            # log the images over time
+            if log_denoising_images & (batch_size == 1):
+                latents_ori = 1 / self.vae.config.scaling_factor * latents
+                image = self.vae.decode(latents_ori).sample
+                image = self.tensor_to_numpy(image)
+                image = self.numpy_to_pil(image)
+                wandb.log({"denoise_image": wandb.Image(image[0], caption=f"{metric:.4f}"), "diffusion_step": i})
 
         # deliver the synthetic images
         latents_ori = 1 / self.vae.config.scaling_factor * latents

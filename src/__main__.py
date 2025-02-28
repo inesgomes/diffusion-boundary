@@ -9,9 +9,9 @@ import torch
 import wandb
 from diffusers import (
     DDIMPipeline,
-    DDIMScheduler,
     DDPMPipeline,
     DiffusionPipeline,
+    LMSDiscreteScheduler,
     PNDMPipeline,
 )
 from dotenv import load_dotenv
@@ -75,9 +75,14 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
             cache_dir=os.getenv("HF_MODELS_CACHE"),
         ).to(device)
         # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
-        pipe.scheduler = DDIMScheduler.from_config(
-            pipe.scheduler.config
-        )  # , rescale_betas_zero_snr=True, timestep_spacing="trailing")
+        pipe.scheduler = LMSDiscreteScheduler.from_config(
+            pipe.scheduler.config,
+            # rescale_betas_zero_snr=True, # create images less noisy but nore blurry
+            timestep_spacing="trailing",  # both together creates error
+            prediction_type="epsilon",
+            use_karras_sigmas=True,  # make sure we are using k-lms version
+        )
+
         pipe.enable_attention_slicing()
         return pipe
 
@@ -105,7 +110,7 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
             {
                 "prompt": diffusion_arguments["classes"][0],  # TODO: redo to allow muliple classes
                 "guidance_scale": diffusion_arguments["guidance-scale"],
-                "guidance_rescale": 0.7,
+                "guidance_rescale": diffusion_arguments["guidance-rescale"],
             }
         )
     return args
@@ -124,13 +129,15 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
     num_batches = math.ceil(num_images / batch_size)
     images = []
     generator = torch.Generator()
-    for _ in tqdm(range(num_batches), desc="Generating images"):
+    for i in tqdm(range(num_batches), desc="Generating images"):
         batch_size_to_use = min(batch_size, num_images - len(images))
         generator.seed()
+        log_denoising_images = i == 0
         batch_images = pipe(
             generator=generator,
             num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
             batch_size=batch_size_to_use,
+            log_denoising_images=log_denoising_images,
             **args,
         ).images
         images.extend(batch_images)

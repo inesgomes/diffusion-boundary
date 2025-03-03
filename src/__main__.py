@@ -35,6 +35,15 @@ from src.evaluation import (
 from src.utils import generate_group_name, generate_run_id, load_configurations
 
 
+def save_images_to_disk(images):
+    """Save images to disk."""
+    path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
+    os.makedirs(path, exist_ok=True)
+    with open(f"{path}/images.pkl", "wb") as f:
+        torch.save(images, f)
+        print("Images saved at", path)
+
+
 def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=None, device="cpu"):
     """
     General method to load pre-trained diffusion pipelines.
@@ -69,20 +78,20 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
         pipe = pipeline_class.from_pretrained(
             model,
             custom_pipeline=custom_pipeline,
-            torch_dtype=torch.float16,
             clip_model=clip_model,
             tokenizer=tokenizer,
+            torch_dtype=torch.float16,
+            variant="fp16",
             cache_dir=os.getenv("HF_MODELS_CACHE"),
         ).to(device)
         # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
         pipe.scheduler = LMSDiscreteScheduler.from_config(
             pipe.scheduler.config,
-            # rescale_betas_zero_snr=True, # create images less noisy but nore blurry
+            rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
             timestep_spacing="trailing",  # both together creates error
-            prediction_type="epsilon",
+            prediction_type="epsilon",  # TODO v_prediction is not working
             use_karras_sigmas=True,  # make sure we are using k-lms version
         )
-
         pipe.enable_attention_slicing()
         return pipe
 
@@ -111,6 +120,7 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
                 "prompt": diffusion_arguments["classes"][0],  # TODO: redo to allow muliple classes
                 "guidance_scale": diffusion_arguments["guidance-scale"],
                 "guidance_rescale": diffusion_arguments["guidance-rescale"],
+                "negative_prompt": diffusion_arguments["negative-prompt"],
             }
         )
     return args
@@ -129,6 +139,7 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
     num_batches = math.ceil(num_images / batch_size)
     images = []
     generator = torch.Generator()
+    # generator = [torch.Generator(device="cuda").manual_seed(i) for i in range(4)] # to generate batches
     for i in tqdm(range(num_batches), desc="Generating images"):
         batch_size_to_use = min(batch_size, num_images - len(images))
         generator.seed()
@@ -202,7 +213,7 @@ def stress_test_classifier(
         default_configs["device"],
         evaluation_config["mc-dropout"]["n-samples"],
         evaluation_config["mc-dropout"]["threshold"],
-        real_labels,
+        gt=real_labels,
     )
 
     torch.cuda.empty_cache()
@@ -228,15 +239,11 @@ def stress_test_classifier(
     )
     synth_dataset.set_images(images)
 
-    # save if needed
-    if default_configs["log-images"]:
-        path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
-        os.makedirs(path, exist_ok=True)
-        with open(f"{path}/images.pkl", "wb") as f:
-            torch.save(images, f)
-            print("Images saved at", path)
-
     torch.cuda.empty_cache()
+
+    # save to disk, if needed
+    if default_configs["log-images"]:
+        save_images_to_disk(images)
 
     # prepare results, from synthetic dataset
     synth_dataset_res = prepare_dataset_results(
@@ -252,11 +259,14 @@ def stress_test_classifier(
 
     # log uncertainty metrics
     for unc_metric in UNCERTAINTY_METRICS:
-        wandb.log({f"{unc_metric}": synth_dataset_res[unc_metric].mean()})
-        fig = visualize_top_synthetic_metric(
-            synth_dataset, synth_dataset_res, unc_metric, default_configs["display-rgb"]
-        )
-        wandb.log({f"{unc_metric}_sample": wandb.Image(fig)})
+        mean_unc_metric = synth_dataset_res[unc_metric].mean()
+        # not all uncertainty metrics are available all the time
+        if not math.isnan(mean_unc_metric):
+            wandb.log({f"{unc_metric}": mean_unc_metric})
+            fig = visualize_top_synthetic_metric(
+                synth_dataset, synth_dataset_res, unc_metric, default_configs["display-rgb"]
+            )
+            wandb.log({f"{unc_metric}_sample": wandb.Image(fig)})
 
     # from features:
 

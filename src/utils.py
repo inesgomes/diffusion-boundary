@@ -53,15 +53,17 @@ def load_configurations(config_path):
     # check if guidance exists
     if "pipeline" not in config["diffusion"]:
         config["diffusion"]["pipeline"] = None
-
     if "type" not in config["diffusion"]:
         config["diffusion"]["type"] = None
-
     if "guidance" not in config["diffusion"]["args"]:
         config["diffusion"]["args"]["guidance"] = "noguidance"
+    if "negative-prompt" not in config["diffusion"]["args"]:
+        config["diffusion"]["args"]["negative-prompt"] = ""
 
-    if "prompt" not in config["diffusion"]["args"]:
-        config["diffusion"]["args"]["prompt"] = ""
+    # check if the mc-dropout should be used
+    if "mc-dropout" not in config["evaluation"]:
+        config["evaluation"]["mc-dropout"]["n-samples"] = None
+        config["evaluation"]["mc-dropout"]["threshold"] = None
 
     # transform certain arguments to list
     if not isinstance(config["diffusion"]["args"]["guidance"], list):
@@ -74,7 +76,6 @@ def load_configurations(config_path):
     # check if dataset subset exist
     if "subset" not in config["dataset"]:
         config["dataset"]["subset"] = None
-
     if "split" not in config["dataset"]:
         config["dataset"]["split"] = "test"
 

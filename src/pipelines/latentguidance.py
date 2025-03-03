@@ -4,7 +4,7 @@ Module that contatins the code to guide the diffusion process with a classifier.
 tutorial:
  - https://huggingface.co/learn/diffusion-course/en/unit3/2
  - https://huggingface.co/blog/stable_diffusion
- - https://github.com/huggingface/diffusers/blob/b69fd990ad8026f21893499ab396d969b62bb8cc/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L982
+ - https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#
 """
 
 from typing import List, Optional, Tuple, Union
@@ -33,40 +33,56 @@ class LatentClassifierGuidance(DiffusionPipeline):
             scheduler=scheduler,
         )
 
-    def tensor_to_numpy(self, images):
-        """Transform the tensors to numpy."""
-        images = (images / 2 + 0.5).clamp(0, 1)
-        images = images.cpu().permute(0, 2, 3, 1).detach().numpy()
-        return images
+    def rescale_noise_cfg(self, noise_cfg, noise_pred_text, guidance_rescale=0.0):
+        """Rescales `noise_cfg` tensor based on `guidance_rescale` to improve image quality and fix overexposure.
+
+        Based on Section 3.4 from https://arxiv.org/pdf/2305.08891.pdf.
+        Code from https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L69
+        """
+        std_text = noise_pred_text.std(dim=list(range(1, noise_pred_text.ndim)), keepdim=True)
+        std_cfg = noise_cfg.std(dim=list(range(1, noise_cfg.ndim)), keepdim=True)
+        # rescale the results from guidance (fixes overexposure)
+        noise_pred_rescaled = noise_cfg * (std_text / std_cfg)
+        # mix with the original results from guidance by factor guidance_rescale to avoid "plain looking" images
+        noise_cfg = guidance_rescale * noise_pred_rescaled + (1 - guidance_rescale) * noise_cfg
+        return noise_cfg
+
+    def scheduler_pred_original_sample(self, noise_prediction, latents):
+        """Predict the original sample for k-lms scheduler."""
+        # TODO: check if scheduler is k-lms
+        # if self.scheduler.config._class_name != "LMSDiscreteScheduler":
+        #    raise ValueError("This function is only for the k-lms scheduler.")
+
+        # Save current sigma and compute the original sample according to epsilon prediction type
+        sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
+        if self.scheduler.config.prediction_type == "epsilon":
+            return latents - sigma_t * noise_prediction
+        if self.scheduler.config.prediction_type == "v_prediction":
+            return noise_prediction * (-sigma_t / (sigma_t**2 + 1) ** 0.5) + (latents / (sigma_t**2 + 1))
+        raise ValueError(
+            f"prediction_type given as {self.scheduler.config.prediction_type} must be one of `epsilon`, or `v_prediction`"
+        )
 
     @torch.enable_grad()
-    def calculate_gradient(self, classifier, transformation, latents, noise_prediction, guidance_type, alpha):
+    def calculate_gradient(self, classifier, transformation, latents, t, prompt_embd, guidance_type, alpha):
         """Calculate the gradient of the selected metric with respect to the images."""
         # start the gradient calculation
         latents = latents.detach().requires_grad_(True).to(self.device)
 
-        # scale them
-        # latent_scaled = self.scheduler.scale_model_input(latents, t)
+        # redo noise prediction, but only for the original latent and original prompt
+        latent_scaled = self.scheduler.scale_model_input(latents, t)
+        noise_prediction = self.unet(latent_scaled, t, encoder_hidden_states=prompt_embd).sample
 
-        # make new noise prediction, only for the original latent and original prompt
-        # noise_prediction = self.unet(latents, t, encoder_hidden_states=prompt_embd).sample
-
-        # OLD CODE
-        # predict the latent for the current timestep
-        # latents_0 = self.scheduler.step(noise_prediction, t, latents).pred_original_sample
-
-        # Save current sigma and compute the original sample according to epsilon prediction type
-        sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
-        latents_0 = latents - sigma_t * noise_prediction
-        # latents_0 = (latents - sigma_t * noise_prediction) / (1 + sigma_t**2).sqrt() # from chatgpt
+        # calculate prediction for the original sample
+        latents_0 = self.scheduler_pred_original_sample(noise_prediction, latents)
 
         # decode the latents to images and transform to the classifier format
-        original_lat = 1 / self.vae.config.scaling_factor * latents_0
-        images = self.vae.decode(original_lat).sample
+        images = self.decode_latents(latents_0)
         # tensor should be normalized between [0, 1]
-        images = images / 2 + 0.5
-        images = images - images.min().detach()
-        images = images / images.max().detach()
+        # images = images / 2 + 0.5
+        # images = images - images.min().detach()
+        # images = images / images.max().detach()
+
         # classifier transformation
         images_t = transformation.transform_images(images)
 
@@ -84,17 +100,17 @@ class LatentClassifierGuidance(DiffusionPipeline):
 
         return metric, grad
 
-    def apply_cfg(self, noise_pred_text, noise_pred_uncond, guidance_scale, rescale):
-        """Rescale cfg according to https://arxiv.org/pdf/2305.08891."""
-        # Apply regular classifier-free guidance.
-        noise_prediction = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-        # Calculate standard deviations.
-        std_pos = noise_pred_text.std([1, 2, 3], keepdim=True)
-        std_cfg = noise_prediction.std([1, 2, 3], keepdim=True)
-        # Apply guidance rescale with fused operations.
-        factor = std_pos / std_cfg
-        factor = rescale * factor + (1 - rescale)
-        return noise_prediction * factor
+    def decode_latents(self, latents, output_type=None):
+        """Decode the latents to images. Can be PIL (if explicit) or tensor."""
+        # decode VAE
+        images = self.vae.decode(latents / self.vae.config.scaling_factor).sample
+        # normalize [0,1]
+        images = (images / 2 + 0.5).clamp(0, 1)
+        if output_type == "pil":
+            # to numpy first
+            images_np = images.cpu().permute(0, 2, 3, 1).detach().numpy()
+            return self.numpy_to_pil(images_np)
+        return images
 
     @torch.no_grad()
     def __call__(
@@ -117,20 +133,29 @@ class LatentClassifierGuidance(DiffusionPipeline):
         Returns:
             _type_: _description_
         """
+        # stable diffusion
         prompt = kwargs.get("prompt", None)
+        negative_prompt = kwargs.get("negative_prompt", "")
         guidance_scale = kwargs.get("guidance_scale", 1.0)
         guidance_rescale = kwargs.get("guidance_rescale", 1.0)
+        vae_scale_factor = 8
 
+        # specific for my implementation
         classifier = kwargs.get("classifier", None)
         transformation = kwargs.get("transformation", None)
         alpha = kwargs.get("alpha", None)
         guidance_type = kwargs.get("guidance_type", None)
         guidance_freq = kwargs.get("guidance_freq", 1)
 
-        # this is the height and weight of the original image, not sure if getting this number from the VAE is correct
-        height = self.vae.config.sample_size
-        width = self.vae.config.sample_size
+        # if guidance_scale=1, it means that I don't need to do classifier free guidance
+        do_cfg = guidance_scale > 1
 
+        # this is the height and weight of the original image
+        # TODO: test providing the height and width as parameters (224 given that the classifier is resnet-50)
+        height = self.unet.config.sample_size * vae_scale_factor
+        width = self.unet.config.sample_size * vae_scale_factor
+
+        # TODO: consider for batch processing
         # prompt = [prompt] * batch_size
 
         # tokenize prompt and get embeddings
@@ -143,51 +168,55 @@ class LatentClassifierGuidance(DiffusionPipeline):
         )
         prompt_emb = self.text_encoder(prompt_tok.input_ids.to(self.device))[0]
 
-        # unconditional text embeddings for classifier-free guidance, which are just the embeddings for the padding token (empty text)
-        max_length = prompt_tok.input_ids.shape[-1]
-        uncond_tok = self.tokenizer([""], padding="max_length", max_length=max_length, return_tensors="pt")
-        uncond_emb = self.text_encoder(uncond_tok.input_ids.to(self.device))[0]
-
-        # TODO: if guidance=1, it means that I don't need to do cfg. So I need to make that implementation
-
-        # classifier-free guidance, needs two forward passes: one with the conditioned input, and another with the unconditional embeddings
-        text_embd = torch.cat([uncond_emb, prompt_emb])
+        # negative prompt or empty for unconditional embeddings
+        if do_cfg:
+            max_length = prompt_tok.input_ids.shape[-1]
+            uncond_tok = self.tokenizer(
+                [negative_prompt], padding="max_length", max_length=max_length, return_tensors="pt"
+            )
+            uncond_emb = self.text_encoder(uncond_tok.input_ids.to(self.device))[0]
+            # classifier-free guidance, needs two forward passes: one with the conditioned input, and another with the unconditional embeddings
+            text_emb = torch.cat([uncond_emb, prompt_emb])
+        else:
+            text_emb = prompt_emb
 
         # sample latents noise to begin loop
         latents = torch.randn(
             batch_size,
             self.unet.config.in_channels,
-            height // 8,
-            width // 8,
+            height // vae_scale_factor,
+            width // vae_scale_factor,
             generator=generator,
-            dtype=text_embd.dtype,
+            dtype=text_emb.dtype,
         ).to(self.device)
-
-        # set step values
-        self.scheduler.set_timesteps(num_inference_steps)
 
         # the k-lms scheduler needs to multiply the latents by its sigma values
         latents = latents * self.scheduler.init_noise_sigma
 
+        # set step values
+        self.scheduler.set_timesteps(num_inference_steps)
+
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
             # expand the latents to avoid doing two forward passes
-            latent_model_input = torch.cat([latents] * 2)
+            latent_model_input = torch.cat([latents] * 2) if do_cfg else latents
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
             # 1. predict noise residual
-            noise_prediction = self.unet(latent_model_input, t, encoder_hidden_states=text_embd).sample
+            noise_prediction = self.unet(latent_model_input, t, encoder_hidden_states=text_emb).sample
 
             # 2. compute text guidance
-            noise_pred_uncond, noise_pred_text = noise_prediction.chunk(2)
-
-            # formula from the classifier free guidance
-            noise_prediction_cfg = self.apply_cfg(noise_pred_text, noise_pred_uncond, guidance_scale, guidance_rescale)
+            if do_cfg:
+                noise_pred_uncond, noise_pred_text = noise_prediction.chunk(2)
+                # formula from the classifier free guidance
+                noise_prediction = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                if guidance_rescale > 0:
+                    noise_prediction = self.rescale_noise_cfg(noise_prediction, noise_pred_text, guidance_rescale)
 
             # 3. compute classifier guidance (if frequency allows)
             metric = -1
             if (guidance_freq != 0) and (i % guidance_freq == 0):
                 metric, grad = self.calculate_gradient(
-                    classifier, transformation, latents, noise_pred_text, guidance_type, alpha
+                    classifier, transformation, latents, t, prompt_emb, guidance_type, alpha
                 )
                 latents = latents.detach() + grad
 
@@ -196,23 +225,16 @@ class LatentClassifierGuidance(DiffusionPipeline):
                 wandb.log({"loss-guidance": grad})
 
             # 4. predict the previous noisy sample x_t -> x_t-1
-            latents = self.scheduler.step(noise_prediction_cfg, t, latents).prev_sample
+            latents = self.scheduler.step(noise_prediction, t, latents).prev_sample
 
-            # log the images over time
+            # log the images over time, if only one image is being processed
             if log_denoising_images & (batch_size == 1):
-                latents_ori = 1 / self.vae.config.scaling_factor * latents
-                image = self.vae.decode(latents_ori).sample
-                image = self.tensor_to_numpy(image)
-                image = self.numpy_to_pil(image)
-                wandb.log({"denoise_image": wandb.Image(image[0], caption=f"{metric:.4f}"), "diffusion_step": i})
+                image = self.decode_latents(latents, output_type)[0]
+                wandb.log({"denoise_image": wandb.Image(image, caption=f"{metric:.4f}"), "_diffusion_step": i})
 
         # deliver the synthetic images
-        latents_ori = 1 / self.vae.config.scaling_factor * latents
-        images = self.vae.decode(latents_ori).sample
+        images = self.decode_latents(latents, output_type)
 
-        images = self.tensor_to_numpy(images)
-        if output_type == "pil":
-            images = self.numpy_to_pil(images)
         if not return_dict:
             return (images,)
         return ImagePipelineOutput(images=images)

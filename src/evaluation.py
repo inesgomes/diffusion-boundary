@@ -158,7 +158,7 @@ def curate_results(class_labels, probs, probs_dropout=None):
     return results
 
 
-def prepare_dataset_results(dataset, classifier, batch_size, device, num_samples, drop_threshold, gt=None):
+def prepare_dataset_results(dataset, classifier, batch_size, device, num_samples=None, drop_threshold=None, gt=None):
     """Prepare the dataset results for visualization. First compute the predictions (in batch), then apply the curate_results function."""
     # compute dataset predictions
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=6)
@@ -174,33 +174,27 @@ def prepare_dataset_results(dataset, classifier, batch_size, device, num_samples
         calculate_performance_metrics(probs, gt)
 
     # compute predictions with MC dropout method
-
-    # first, set dropout and change model to training mode
-    # TODO: I need to see if all models have dropout layers
-
-    # classifier.set_dropout(dropout_p=drop_threshold)
-    # classifier.set_train()
-
-    # all_predictions = []
-    # with torch.no_grad():
-    #    for batch in tqdm(loader, desc="Compute MC dropout predictions"):
-    #        batch = batch.to(device)
-    #        batch_predictions = []
-    #        for _ in range(num_samples):
-    #            probs_batch, _ = classifier.predict(batch)
-    #            batch_predictions.append(probs_batch.unsqueeze(0))
-    #        batch_predictions = torch.cat(batch_predictions, dim=0)
-    #        all_predictions.append(batch_predictions)
-    # probs_dropout = torch.cat(all_predictions, dim=1).cpu()
-
-    # return to eval mode
-    # classifier.set_dropout(dropout_p=0)
-    # classifier.set_eval()
-
-    # for now, we will not use the dropout
     probs_dropout = None
-    print(drop_threshold)
-    print(num_samples)
+    if (num_samples is not None) and (drop_threshold is not None):
+        # first, set dropout and change model to training mode
+        classifier.set_dropout(dropout_p=drop_threshold)
+        classifier.set_train()
+
+        all_predictions = []
+        with torch.no_grad():
+            for batch in tqdm(loader, desc="Compute MC dropout predictions"):
+                batch = batch.to(device)
+                batch_predictions = []
+                for _ in range(num_samples):
+                    probs_batch, _ = classifier.predict(batch)
+                    batch_predictions.append(probs_batch.unsqueeze(0))
+                batch_predictions = torch.cat(batch_predictions, dim=0)
+                all_predictions.append(batch_predictions)
+        probs_dropout = torch.cat(all_predictions, dim=1).cpu()
+
+        # return to eval mode
+        classifier.set_dropout(dropout_p=0)
+        classifier.set_eval()
 
     # prepare dataframe with the probabilities + metrics per image
     return curate_results(dataset.get_class_labels(), probs, probs_dropout)

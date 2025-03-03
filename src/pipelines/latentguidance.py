@@ -47,22 +47,6 @@ class LatentClassifierGuidance(DiffusionPipeline):
         noise_cfg = guidance_rescale * noise_pred_rescaled + (1 - guidance_rescale) * noise_cfg
         return noise_cfg
 
-    def scheduler_pred_original_sample(self, noise_prediction, latents):
-        """Predict the original sample for k-lms scheduler."""
-        # TODO: check if scheduler is k-lms
-        # if self.scheduler.config._class_name != "LMSDiscreteScheduler":
-        #    raise ValueError("This function is only for the k-lms scheduler.")
-
-        # Save current sigma and compute the original sample according to epsilon prediction type
-        sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
-        if self.scheduler.config.prediction_type == "epsilon":
-            return latents - sigma_t * noise_prediction
-        if self.scheduler.config.prediction_type == "v_prediction":
-            return noise_prediction * (-sigma_t / (sigma_t**2 + 1) ** 0.5) + (latents / (sigma_t**2 + 1))
-        raise ValueError(
-            f"prediction_type given as {self.scheduler.config.prediction_type} must be one of `epsilon`, or `v_prediction`"
-        )
-
     @torch.enable_grad()
     def calculate_gradient(self, classifier, transformation, latents, t, prompt_embd, guidance_type, alpha):
         """Calculate the gradient of the selected metric with respect to the images."""
@@ -74,13 +58,11 @@ class LatentClassifierGuidance(DiffusionPipeline):
         noise_prediction = self.unet(latent_scaled, t, encoder_hidden_states=prompt_embd).sample
 
         # calculate prediction for the original sample
-        latents_0 = self.scheduler_pred_original_sample(noise_prediction, latents)
+        sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
+        latents_0 = latents - sigma_t * noise_prediction
 
         # decode the latents to images and transform to the classifier format
         images = self.decode_latents(latents_0)
-        # images = images / 2 + 0.5
-        # images = images - images.min().detach()
-        # images = images / images.max().detach()
 
         # classifier transformation
         images_t = transformation.transform_images(images)
@@ -95,7 +77,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         grad = torch.autograd.grad(loss, latents)[0]
 
         # scale gradients
-        # scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * latents.norm(2).detach()
+        # scaled_gradients = grad / (grad.norm(2).detach() + 1e-6) * latents.norm(2).detach()
 
         return metric, grad
 
@@ -150,7 +132,6 @@ class LatentClassifierGuidance(DiffusionPipeline):
         do_cfg = guidance_scale > 1
 
         # this is the height and weight of the original image
-        # TODO: test providing the height and width as parameters (224 given that the classifier is resnet-50)
         height = self.unet.config.sample_size * vae_scale_factor
         width = self.unet.config.sample_size * vae_scale_factor
 

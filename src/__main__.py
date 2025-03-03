@@ -89,7 +89,7 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
             pipe.scheduler.config,
             rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
             timestep_spacing="trailing",  # both together creates error
-            prediction_type="epsilon",  # TODO v_prediction is not working
+            prediction_type="epsilon",
             use_karras_sigmas=True,  # make sure we are using k-lms version
         )
         pipe.enable_attention_slicing()
@@ -115,9 +115,13 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
             }
         )
     if pipeline_name == "latentguidance":
+        # the prompt strategy is defined in the yaml, as well as all the classes needed
+        classes = f"{' and '.join(diffusion_arguments['classes'])}"
+        prompt = diffusion_arguments["prompt-strategy"].replace("<classes>", classes)
+        print(">> Prompt: ", prompt)
         args.update(
             {
-                "prompt": diffusion_arguments["classes"][0],  # TODO: redo to allow muliple classes
+                "prompt": prompt,
                 "guidance_scale": diffusion_arguments["guidance-scale"],
                 "guidance_rescale": diffusion_arguments["guidance-rescale"],
                 "negative_prompt": diffusion_arguments["negative-prompt"],
@@ -256,7 +260,6 @@ def stress_test_classifier(
     )
 
     # EVALUATION of the synthetic dataset
-
     # log uncertainty metrics
     for unc_metric in UNCERTAINTY_METRICS:
         mean_unc_metric = synth_dataset_res[unc_metric].mean()
@@ -300,13 +303,17 @@ def stress_test_classifier(
         wandb.log({"dist_metrics": wandb.Image(dist_metric)})
 
         # visualize label information, if number of classes is small
-        if synth_dataset.get_n_classes() <= 10:
+        # TODO: order by the classes most present in the synthetic dataset, and display top-5
 
-            # class distributions -> overall this is a stupid plot
-            dist_labels = visualize_class_distributions(real_vs_synth, dataset_config["n_classes"])
-            wandb.log({"dist_labels": wandb.Image(dist_labels)})
+        top_5_classes = synth_dataset_res.groupby("pred").size().sort_values(ascending=False).head(5).index
+        real_vs_synth_filter = real_vs_synth[real_vs_synth["pred"].isin(top_5_classes)]
 
-            # ambiguity matrix
+        # class distributions for top classes
+        dist_labels = visualize_class_distributions(real_vs_synth_filter, top_n=5)
+        wandb.log({"dist_labels": wandb.Image(dist_labels)})
+
+        # ambiguity matrix
+        if dataset_config["n_classes"] <= 10:
             viz_pairs, table_confusion = visualize_confusion(
                 real_dataset_res,
                 synth_dataset_res,

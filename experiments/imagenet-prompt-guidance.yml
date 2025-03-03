@@ -24,13 +24,15 @@ diffusion:
   type: sd
   args:
     num-inference-steps: 25
+    prompt-strategy: A hybrid of <classes>, combining the features of both, blending the shapes, sizes, and general appearance of each. #A mix of <classes>
     classes:
-      - Border collie
+      - pelican
+      - flamingo
     guidance: norm-entropy
-    alpha: 7
+    alpha: 10
     guidance-freq: 1
     guidance-scale: 3.5
-    guidance-rescale: 0.6
+    guidance-rescale: 0.8
     negative-prompt: blurry, deformed, low quality, watermark, text, extra limbs, ugly # if not specified, it is empty 
 
 evaluation:

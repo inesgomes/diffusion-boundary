@@ -148,6 +148,7 @@ def curate_results(class_labels, probs, probs_dropout=None):
     class_labels_array = np.array(class_labels)
     sorted_labels = class_labels_array[sorted_indices]
     results["sorted_labels"] = [list(row) for row in sorted_labels]
+    results["pred"] = sorted_labels[:, 0]
 
     # compute all extra metrics per image and add to the dataframe
     metrics = BINARY_METRICS if probs.size(1) == 2 else MULTICLASS_METRICS
@@ -230,14 +231,19 @@ def visualize_metrics_distributions(real_synth_results, n_classes):
     return fig_metric
 
 
-def visualize_class_distributions(real_synth_results, n_classes):
+def visualize_class_distributions(real_synth_results, top_n):
     """Plot distributions for real and synthetic datasets per each class."""
-    # probs per class
-    labels = real_synth_results.columns[2 : n_classes + 2]
-    fig_classes, ax_c = plt.subplots(figsize=(8, 1.5 * n_classes))
+    # top classes
+    top_5_classes = real_synth_results.groupby("pred").size().sort_values(ascending=False).head(top_n)
+    print(top_5_classes)
 
-    viz_results_melt = real_synth_results.melt(
-        id_vars="keys", value_vars=labels, var_name="label", value_name="probability"
+    real_synth_results_filter = real_synth_results[real_synth_results["pred"].isin(top_5_classes.index)]
+
+    # probs per class
+    fig_classes, ax_c = plt.subplots(figsize=(8, 1.5 * top_n))
+
+    viz_results_melt = real_synth_results_filter.melt(
+        id_vars="keys", value_vars=top_5_classes.index, var_name="label", value_name="probability"
     )
     sns.boxplot(
         data=viz_results_melt,

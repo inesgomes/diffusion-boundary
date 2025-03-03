@@ -62,6 +62,7 @@ def load_configurations(config_path):
 
     # check if the mc-dropout should be used
     if "mc-dropout" not in config["evaluation"]:
+        config["evaluation"]["mc-dropout"] = {}
         config["evaluation"]["mc-dropout"]["n-samples"] = None
         config["evaluation"]["mc-dropout"]["threshold"] = None
 

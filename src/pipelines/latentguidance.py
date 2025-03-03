@@ -78,7 +78,6 @@ class LatentClassifierGuidance(DiffusionPipeline):
 
         # decode the latents to images and transform to the classifier format
         images = self.decode_latents(latents_0)
-        # tensor should be normalized between [0, 1]
         # images = images / 2 + 0.5
         # images = images - images.min().detach()
         # images = images / images.max().detach()

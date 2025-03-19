@@ -88,6 +88,14 @@ def compute_second_rank(probs):
     return torch.topk(probs, 2).values[:, 1]
 
 
+def compute_evidential_ambiguity(probs):
+    """Calculate the evidential ambiguity of the classifier output based on the theory of evidence from Dempster-Shafter."""
+    K = probs.shape[1]  # n classes
+    m = probs - (1 / K)  # confidence
+    m[m < 0] = 0
+    return 1 - m.sum(dim=1)
+
+
 def compute_cross_entropy_loss(probs, logits):
     """Calculate the cross-entropy loss of the classifier output."""
     return F.cross_entropy(logits, probs, reduction="none")
@@ -132,6 +140,7 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None):
         "deepgini": compute_deepgini,
         "least-confidence": compute_least_confidence,
         "second-rank": compute_second_rank,
+        "evidential-ambiguity": compute_evidential_ambiguity,
     }
 
     loss_functions = {

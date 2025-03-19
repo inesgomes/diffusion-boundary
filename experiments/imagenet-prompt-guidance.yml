@@ -23,13 +23,15 @@ diffusion:
   name: CompVis/stable-diffusion-v1-4
   type: sd
   args:
-    num-inference-steps: 25
-    prompt-strategy: A hybrid of <classes>, combining the features of both, blending the shapes, sizes, and general appearance of each. #A mix of <classes>
+    num-inference-steps: 30
+    prompt-strategy: One realistic hybrid of <classes>, even for humans. 
+      #<classes>
+      #A realistic mix of <classes>, combining the features of both, blending the shapes, sizes, and general appearance of each. #A realistic mix of <classes>
     classes:
       - pelican
       - flamingo
-    guidance: norm-entropy
-    alpha: 10
+    guidance: evidential-ambiguity #cross-entropy
+    alpha: 1
     guidance-freq: 1
     guidance-scale: 3.5
     guidance-rescale: 0.8

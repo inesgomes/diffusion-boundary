@@ -11,14 +11,16 @@ import torch
 from torch.nn import functional as F
 
 MULTICLASS_METRICS = [
-    "entropy",
+    "entropy",  # based on probabilities
     "norm-entropy",
-    "margin",
-    "margin-top2",
-    "deepgini",
-    "least-confidence",
-    "cross-entropy",
-    "second-rank",
+    "cross-entropy",  # based on logits
+    "margin-top2",  # not great if the top2 are not the classes that I wanted
+    "margin-logit-top2",  # uses logits instead of probs to compute the margin
+    "deepgini",  # similar to entropy
+    "second-rank",  # does not take into consideration the confusion with other classes
+    "evidential-ambiguity",
+    # "margin",
+    # "least-confidence",
 ]
 BINARY_METRICS = ["confusion-distance", "margin", "deepgini", "least-confidence", "binary-entropy", "bce"]
 

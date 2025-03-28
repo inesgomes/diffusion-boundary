@@ -25,13 +25,14 @@ diffusion:
   args:
     num-inference-steps: 30
     prompt-strategy: One realistic hybrid of <classes>, even for humans. 
-      #<classes>
-      #A realistic mix of <classes>, combining the features of both, blending the shapes, sizes, and general appearance of each. #A realistic mix of <classes>
+      # <classes>
+      # A realistic mix of <classes>
+      # A realistic mix of <classes>, combining the features of both, blending the shapes, sizes, and general appearance of each. 
     classes:
       - pelican
       - flamingo
-    guidance: evidential-ambiguity #cross-entropy
-    alpha: 1
+    guidance: cross-entropy
+    alpha: 0.001
     guidance-freq: 1
     guidance-scale: 3.5
     guidance-rescale: 0.8

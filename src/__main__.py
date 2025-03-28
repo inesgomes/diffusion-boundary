@@ -109,12 +109,14 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
             {
                 "classifier": classifier,
                 "transformation": dataset,
-                "alpha": diffusion_arguments["alpha"],
                 "guidance_type": diffusion_arguments["guidance"],
                 "guidance_freq": diffusion_arguments["guidance-freq"],
+                "alpha": diffusion_arguments["alpha"],
             }
         )
     if pipeline_name == "latentguidance":
+        # get the index of the classes
+        classes_idx = [dataset.get_class_idx(class_name) for class_name in diffusion_arguments["classes"]]
         # the prompt strategy is defined in the yaml, as well as all the classes needed
         classes = f"{' and '.join(diffusion_arguments['classes'])}"
         prompt = diffusion_arguments["prompt-strategy"].replace("<classes>", classes)
@@ -122,6 +124,7 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
         args.update(
             {
                 "prompt": prompt,
+                "labels_idx": classes_idx,
                 "guidance_scale": diffusion_arguments["guidance-scale"],
                 "guidance_rescale": diffusion_arguments["guidance-rescale"],
                 "negative_prompt": diffusion_arguments["negative-prompt"],

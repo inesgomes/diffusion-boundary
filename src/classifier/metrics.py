@@ -15,10 +15,10 @@ MULTICLASS_METRICS = [
     "norm-entropy",
     "cross-entropy",  # based on logits
     "margin-top2",  # not great if the top2 are not the classes that I wanted
-    "margin-logit-top2",  # uses logits instead of probs to compute the margin
     "deepgini",  # similar to entropy
     "second-rank",  # does not take into consideration the confusion with other classes
     "evidential-ambiguity",
+    "ambiguous-loss",
     # "margin",
     # "least-confidence",
 ]
@@ -103,6 +103,21 @@ def compute_cross_entropy_loss(probs, logits):
     return F.cross_entropy(logits, probs, reduction="none")
 
 
+def compute_ambiguous_loss(logits, labels_idx):
+    """Compute ambiguous loss for the classifier output, where the given labels have equal probability and the rest are 0. This is a soft cross entropy."""
+    n = len(labels_idx)
+    max_prob = 1 / n
+
+    target = torch.zeros(*logits.shape, device=logits.device)
+    for idx in labels_idx:
+        target[:, idx] = max_prob
+
+    return F.cross_entropy(logits, target, reduction="none")
+
+    # option with bce
+    # return F.binary_cross_entropy(probs, target, reduction="none")
+
+
 def compute_bce_loss(probs, logits):
     """Calculate the cross-entropy loss of the classifier output."""
     # TODO check if it is working
@@ -127,7 +142,7 @@ def compute_mc_dropout_max(probs_dropout):
     return probs_dropout.var(dim=0).max(dim=-1).values
 
 
-def compute_metric(metric, probs, probs_dropout=None, logits=None):
+def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=None):
     """Calculate the specified metric of the classifier output."""
     # avoid problems with log(0) or log(1)
     probs = torch.clamp(probs, 1e-10, 1 - 1e-10)
@@ -150,6 +165,10 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None):
         "bce": compute_bce_loss,
     }
 
+    loss_functions_target = {
+        "ambiguous-loss": compute_ambiguous_loss,
+    }
+
     uncertainty_functions = {
         "mc-dropout-mean": compute_mc_dropout_mean,
         "mc-dropout-max": compute_mc_dropout_max,
@@ -159,13 +178,12 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None):
         return metric_functions[metric](probs)
 
     if metric in loss_functions:
-        if logits is not None:
-            return loss_functions[metric](probs, logits)
-        return torch.tensor(float("nan"))
+        return loss_functions[metric](probs, logits) if logits is not None else torch.tensor(float("nan"))
+
+    if metric in loss_functions_target:
+        return loss_functions_target[metric](logits, labels_idx) if logits is not None else torch.tensor(float("nan"))
 
     if metric in uncertainty_functions:
-        if probs_dropout is not None:
-            return uncertainty_functions[metric](probs_dropout)
-        return torch.tensor(float("nan"))
+        return uncertainty_functions[metric](probs_dropout) if probs_dropout is not None else torch.tensor(float("nan"))
 
     raise ValueError(f"Metric {metric} not supported")

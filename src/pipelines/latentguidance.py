@@ -48,7 +48,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         return noise_cfg
 
     @torch.enable_grad()
-    def calculate_gradient(self, classifier, transformation, latents, t, prompt_embd, guidance_type):
+    def calculate_gradient(self, classifier, transformation, labels_idx, latents, t, prompt_embd, guidance_type):
         """Calculate the gradient of the selected metric with respect to the images."""
         # start the gradient calculation
         latents = latents.detach().requires_grad_(True).to(self.device)
@@ -69,7 +69,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
 
         # compute the probabilities and the metric
         probs, logits = classifier.predict(images_t)
-        metric = compute_metric(guidance_type, probs, logits=logits).mean()
+        metric = compute_metric(guidance_type, probs, logits=logits, labels_idx=labels_idx).mean()
 
         # compute the gradient, in relation to the original latent
         grad = torch.autograd.grad(metric, latents)[0]
@@ -122,6 +122,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # specific for my implementation
         classifier = kwargs.get("classifier", None)
         transformation = kwargs.get("transformation", None)
+        labels_idx = kwargs.get("labels_idx", None)
         alpha = kwargs.get("alpha", None)
         guidance_type = kwargs.get("guidance_type", None)
         guidance_freq = kwargs.get("guidance_freq", 1)
@@ -194,7 +195,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
             metric = -1
             if (guidance_freq != 0) and (i % guidance_freq == 0):
                 metric, grad = self.calculate_gradient(
-                    classifier, transformation, latents, t, prompt_emb, guidance_type
+                    classifier, transformation, labels_idx, latents, t, prompt_emb, guidance_type
                 )
                 # weight the metric with our alpha hyperparameter
                 latents += grad * alpha

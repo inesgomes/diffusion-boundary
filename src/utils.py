@@ -77,6 +77,9 @@ def load_configurations(config_path):
     # check if dataset subset exist
     if "subset" not in config["dataset"]:
         config["dataset"]["subset"] = None
+        # if "classes" in config["diffusion"]["args"]:
+        #    config["dataset"]["subset"] = config["diffusion"]["args"]["classes"]
+
     if "split" not in config["dataset"]:
         config["dataset"]["split"] = "test"
 

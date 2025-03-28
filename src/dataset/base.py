@@ -66,3 +66,7 @@ class SyntheticDataset(Dataset):
     def set_images(self, images):
         """Set the images."""
         self.images = images
+
+    def get_class_idx(self, label):
+        """Get the index of the class, given its label."""
+        return self.class_labels.index(label) if label in self.class_labels else None

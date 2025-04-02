@@ -75,7 +75,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         grad = torch.autograd.grad(metric, latents)[0]
 
         # scale gradients
-        scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * latents.norm(2).detach()
+        scaled_gradients = grad / (grad.norm(2).detach() + 1e-10) * latents.norm(2).detach()
 
         return metric, scaled_gradients
 

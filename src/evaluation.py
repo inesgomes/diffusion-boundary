@@ -25,6 +25,8 @@ from src.classifier.metrics import (
     compute_metric,
 )
 
+EVAL_METRICS = ["kdn"]
+
 
 def compute_probabilities(classifier, dataset, device):
     """Compute the probabilities for a given dataset.
@@ -80,7 +82,7 @@ def compute_mc_droupout_metrics(classifier, dataset, num_samples, drop_threshold
     return probs_dropout
 
 
-def prepare_dataset_results(dataset, classifier, batch_size, device, num_samples=None, drop_threshold=None):
+def prepare_dataset_results(dataset, classifier, target, batch_size, device, num_samples=None, drop_threshold=None):
     """Prepare the dataset results for visualization.
 
     First compute the predictions (in batch). Then, curate the results in a dataframe format.
@@ -113,10 +115,15 @@ def prepare_dataset_results(dataset, classifier, batch_size, device, num_samples
     # compute all extra metrics per image and add to the dataframe
     metrics = BINARY_METRICS if probs.size(1) == 2 else MULTICLASS_METRICS
     metrics = list(set(metrics) | set(UNCERTAINTY_METRICS))
+    target_idx = [dataset.get_class_idx(class_name) for class_name in target]
     for metric in metrics:
-        results[metric] = compute_metric(metric, probs, probs_dropout=probs_dropout).detach().cpu().numpy()
+        metric_result = (
+            compute_metric(metric, probs, probs_dropout=probs_dropout, labels_idx=target_idx).detach().cpu().numpy()
+        )
+        if not np.all(np.isnan(metric_result)):
+            results[metric] = metric_result
 
-    # (extra) calculate accuracy and print, if labels exist
+    # (extra) calculate accuracy and show it, if labels exist
     if labels is not None:
         predictions = probs.argmax(dim=1).detach().cpu().numpy()
         acc = accuracy_score(predictions, labels)
@@ -175,9 +182,11 @@ def compute_kdn(real_features, real_labels, fake_features, boundary_classes, k=6
     _, indices = nbrs.kneighbors(fake_features)
 
     disagreements = []
+    nbr_labels_lst = []
     # iterate per each synthetic samples
     for neighbors in indices:
         neighbor_labels = real_labels[neighbors]
+        nbr_labels_lst.append(neighbor_labels)
 
         # compute proportions of neighbors from each class
         counts = {b_cls: np.sum(neighbor_labels == b_cls) for b_cls in boundary_classes}
@@ -193,7 +202,11 @@ def compute_kdn(real_features, real_labels, fake_features, boundary_classes, k=6
 
         disagreements.append(disagreement)
 
-    return disagreements
+    # indices as a list of strings\
+    # TODO update to get the real label name
+    lst_nbr = [" ".join(map(str, sublist)) for sublist in nbr_labels_lst]
+
+    return disagreements, lst_nbr
 
 
 def calculate_feature_metrics(real_dataset, fake_dataset, target, batch_size, device):
@@ -206,8 +219,8 @@ def calculate_feature_metrics(real_dataset, fake_dataset, target, batch_size, de
     fake_features, _ = get_dataset_features(fake_dataset, batch_size, device)
 
     # calculate metrics
-    kdn_results = compute_kdn(real_features, real_labels, fake_features, boundary_labels, k=6)
-    synth_metrics = pd.DataFrame(kdn_results, columns=["KDN"])
+    kdn_results, kdn_nbr = compute_kdn(real_features, real_labels, fake_features, boundary_labels, k=6)
+    synth_metrics = pd.DataFrame({"kdn": kdn_results, "kdn_nbr": kdn_nbr})
 
     return synth_metrics, real_features, fake_features
 
@@ -272,7 +285,7 @@ def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
     return fid_result.value[0]
 
 
-def calculate_evaluation_metrics(real_features, fake_features, sample_metrics):
+def calculate_evaluation_metrics(real_features, fake_features, synthetic_data_res, metrics):
     """Calculate the dataset evaluation metrics.
 
     Include metrics of quality (improved precision, improved recall, coverage and density), as well as the mean and median of all metrics computed per each sample.
@@ -291,11 +304,11 @@ def calculate_evaluation_metrics(real_features, fake_features, sample_metrics):
     }
 
     # add average and median of selected metrics
-    mean_values = sample_metrics.mean()
-    median_values = sample_metrics.median()
+    mean_values = synthetic_data_res[metrics].mean()
+    median_values = synthetic_data_res[metrics].median()
 
-    for col in sample_metrics.columns:
-        results_dict[f"{col}_avg"] = mean_values[col]
-        results_dict[f"{col}_median"] = median_values[col]
+    for m in metrics:
+        results_dict[f"{m}_avg"] = mean_values[m]
+        results_dict[f"{m}_median"] = median_values[m]
 
     return results_dict

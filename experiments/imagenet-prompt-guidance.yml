@@ -5,7 +5,7 @@ user-args:
   device: cuda:1
   seed: 42
   batch-size: 1
-  log-images: False
+  save-disk: False
   log-plots: True
   display-rgb: True
 
@@ -32,7 +32,7 @@ diffusion:
     classes:
       - pelican
       - flamingo
-    guidance: ambiguous-loss
+    guidance: kl-div-target
     alpha: 0.01
     guidance-freq: 1
     guidance-scale: 3.5

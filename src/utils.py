@@ -39,6 +39,10 @@ def load_configurations(config_path):
         print("Dataset name must be defined in the configuration file.")
         sys.exit(1)
 
+    # save images and datasets locally
+    if "save-disk" not in config:
+        config["save-disk"] = False
+
     # manual vs random seed
     if "seed" not in config:
         config["seed"] = random.randint(1, 100)

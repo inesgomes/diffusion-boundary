@@ -20,12 +20,14 @@ from transformers import CLIPModel, CLIPTokenizer
 
 from src.classifier.factory import ClassifierFactory
 from src.classifier.metrics import (
+    BINARY_METRICS,
     MULTICLASS_METRICS,
     UNCERTAINTY_METRICS,
 )
 from src.dataset.aux import get_tst_dataset_streaming
 from src.dataset.factory import DatasetFactory
 from src.evaluation import (
+    EVAL_METRICS,
     calculate_evaluation_metrics,
     calculate_feature_metrics,
     calculate_fid_metric,
@@ -49,6 +51,23 @@ def save_images_to_disk(images):
     with open(f"{path}/images.pkl", "wb") as f:
         torch.save(images, f)
         print("Images saved at", path)
+
+
+def save_results_to_disk(results: pd.DataFrame, name: str):
+    """Save images to disk."""
+    path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
+    os.makedirs(path, exist_ok=True)
+    results.to_pickle(f"{path}/results_{name}.pkl")
+    print("Results saved at", path)
+
+
+def get_valid_metrics(n_classes, dataset_columns):
+    """Get which metrics are valid, given that it is not always possible to compute all metrics. Takes into considering if we have a binary or multiclass problem."""
+    # all possible metrics
+    sample_metrics = BINARY_METRICS if n_classes == 2 else MULTICLASS_METRICS
+    eval_metrics_name = list(set(UNCERTAINTY_METRICS) | set(sample_metrics) | set(EVAL_METRICS))
+    # select only valid metrics (withou NaNs)
+    return [col for col in eval_metrics_name if col in dataset_columns]
 
 
 def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=None, device="cpu"):
@@ -140,7 +159,7 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
     return args
 
 
-def generate_images(diffusion_settings, classifier, dataset, num_images, batch_size, device):
+def generate_images(diffusion_settings, classifier, dataset, num_images, batch_size, seed, device):
     """Generate images using the diffusion pipeline described in the config file."""
     # get diffusion pipeline
     pipe = create_pipeline(
@@ -152,11 +171,10 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
     # generate images in batches
     num_batches = math.ceil(num_images / batch_size)
     images = []
-    generator = torch.Generator()
+    generator = torch.Generator().manual_seed(seed)
     # generator = [torch.Generator(device="cuda").manual_seed(i) for i in range(4)] # to generate batches
     for i in tqdm(range(num_batches), desc="Generating images"):
         batch_size_to_use = min(batch_size, num_images - len(images))
-        generator.seed()
         log_denoising_images = i == 0
         batch_images = pipe(
             generator=generator,
@@ -189,10 +207,10 @@ def stress_test_classifier(
         name=generate_run_id(),
         config={
             "num-images": evaluation_config["num-images"],
-            "certainty-threshold": evaluation_config["certainty-threshold"],
             "classsifier": classifier_config["name"],
             "diffusion": diffusion_config_txt,
-            "log-images": default_configs["log-images"],
+            "save-disk": default_configs["save-disk"],
+            # "certainty-threshold": evaluation_config["certainty-threshold"],
         },
     )
 
@@ -209,7 +227,7 @@ def stress_test_classifier(
     real_images, real_labels, class_labels = get_tst_dataset_streaming(
         dataset_config["name"],
         dataset_config["split"],
-        5000,  # evaluation_config["num-images"], # TODO: I need to solve the problem of imbalanced data
+        max(evaluation_config["num-images"], 5000),
         dataset_config["subset"],
     )
     real_dataset = DatasetFactory.dataset_from_lib(
@@ -225,6 +243,7 @@ def stress_test_classifier(
     real_dataset_res = prepare_dataset_results(
         real_dataset,
         classifier,
+        diffusion_config["args"]["classes"],
         default_configs["batch-size"],
         default_configs["device"],
         evaluation_config["mc-dropout"]["n-samples"],
@@ -250,6 +269,7 @@ def stress_test_classifier(
         synth_dataset,
         evaluation_config["num-images"],
         default_configs["batch-size"],
+        default_configs["seed"],
         default_configs["device"],
     )
     synth_dataset.set_images(images)
@@ -257,13 +277,14 @@ def stress_test_classifier(
     torch.cuda.empty_cache()
 
     # save to disk, if needed
-    if default_configs["log-images"]:
+    if default_configs["save-disk"]:
         save_images_to_disk(images)
 
     # compute metrics that need the classifer
     synth_dataset_res = prepare_dataset_results(
         synth_dataset,
         classifier,
+        diffusion_config["args"]["classes"],
         default_configs["batch-size"],
         default_configs["device"],
         evaluation_config["mc-dropout"]["n-samples"],
@@ -279,11 +300,10 @@ def stress_test_classifier(
         default_configs["device"],
     )
     synth_dataset_res = pd.concat([synth_dataset_res, synth_metrics], axis=1)
+    valid_metrics = get_valid_metrics(dataset_config["n_classes"], synth_dataset_res.columns)
 
-    # evaluation of dataset
-    eval_metrics_name = list(set(UNCERTAINTY_METRICS) | set(MULTICLASS_METRICS) | set(synth_metrics.columns))
-    synth_dataset_metrics = synth_dataset_res[eval_metrics_name]
-    eval_metrics = calculate_evaluation_metrics(real_features, fake_features, synth_dataset_metrics)
+    # compute evaluation of dataset
+    eval_metrics = calculate_evaluation_metrics(real_features, fake_features, synth_dataset_res, valid_metrics)
 
     # fid needs to be calulated in a different way
     fid_value = calculate_fid_metric(
@@ -308,7 +328,8 @@ def stress_test_classifier(
         # metric distribution (real vs fake) - boxplot
         real_vs_synth = pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"]).reset_index()
         real_vs_synth = real_vs_synth.rename(columns={"level_0": "keys"}).drop(columns=["level_1"])
-        dist_metric = visualize_metrics_distributions(real_vs_synth, dataset_config["n_classes"])
+
+        dist_metric = visualize_metrics_distributions(real_vs_synth, valid_metrics)
         wandb.log({"dist_metrics": wandb.Image(dist_metric)})
 
         # class distributions for top classes - boxplot
@@ -331,17 +352,20 @@ def stress_test_classifier(
 
     # sample: grid of images and respective probs
     # entropy is default metric to sort, if we have no guidance
-    sort_metric = diffusion_config["args"]["guidance"] if diffusion_config["pipeline"] == "guidance" else "entropy"
     grid, _ = visualize_sample_synthetic_images(
         synth_dataset,
         synth_dataset_res,
         evaluation_config["viz-sample-size"],
-        sort_metric,
+        diffusion_config["args"]["guidance"] if diffusion_config["pipeline"] == "guidance" else "entropy",
         default_configs["display-rgb"],
         n_cols=5,
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
     # wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
+
+    if default_configs["save-disk"]:
+        save_results_to_disk(synth_dataset_res, "synthetic")
+        save_results_to_disk(real_dataset_res, "real")
 
     # finish wandb
     wandb.finish()

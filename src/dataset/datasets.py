@@ -23,13 +23,21 @@ class OtherDataset(SyntheticDataset):
 
     def __getitem__(self, idx):
         """Get an item from the dataset."""
+        image_transformed = self.images[idx]
         # correct transformation
         if self.transform and (self.use_transformation == "DEFAULT"):
-            return self.transform(self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx])
+            image_transformed = self.transform(
+                self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
+            )
         # 0.5 normalization because of FID calculation
-        if self.transform_norm and (self.use_transformation == "NORM"):
-            return self.transform_norm(self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx])
-        return self.images[idx]
+        elif self.transform_norm and (self.use_transformation == "NORM"):
+            image_transformed = self.transform_norm(
+                self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
+            )
+
+        label = self.labels[idx] if self.labels is not None else -1
+
+        return image_transformed, label
 
     def transform_images(self, images):
         """Transform images outside of the dataset, with the same transformation."""
@@ -61,20 +69,23 @@ class TransfomerDataset(SyntheticDataset):
 
     def __getitem__(self, idx):
         """Get an item from the dataset."""
+        image_transformed = self.images[idx]
         if self.use_transformation == "DEFAULT":
             if isinstance(self.images[idx], Image.Image) and self.transform:
                 image = self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
-                return self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
-            if isinstance(self.images[idx], torch.Tensor) and self.transform_t:
-                return self.transform_t(self.images[idx])
-        if self.use_transformation == "NORM":
+                image_transformed = self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
+            elif isinstance(self.images[idx], torch.Tensor) and self.transform_t:
+                image_transformed = self.transform_t(self.images[idx])
+        elif self.use_transformation == "NORM":
             if self.transform_norm:
-                return self.transform_norm(self.images[idx])
-            if self.transform:
+                image_transformed = self.transform_norm(self.images[idx])
+            elif self.transform:
                 image = self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
-                return self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
+                image_transformed = self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
 
-        return self.images[idx]
+        label = self.labels[idx] if self.labels is not None else -1
+
+        return image_transformed, label
 
     def transform_images(self, images):
         """Transform images outside of the dataset, with the same transformation."""

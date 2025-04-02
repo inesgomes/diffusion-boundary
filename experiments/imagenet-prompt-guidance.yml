@@ -1,5 +1,5 @@
 # WORKING
-project: 20250219_text_image_diffusion
+project: 20250401_text_image_diffusion
 
 user-args: 
   device: cuda:1
@@ -24,7 +24,7 @@ diffusion:
   type: sd
   args:
     num-inference-steps: 30
-    prompt-strategy:  A realistic mix of <classes>, combining the features of both, blending the shapes, sizes, and general appearance of each.
+    prompt-strategy: One realistic hybrid of <classes>, even for humans. 
       # <classes>
       # One realistic hybrid of <classes>, even for humans. 
       # A realistic mix of <classes>

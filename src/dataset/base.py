@@ -14,6 +14,7 @@ class SyntheticDataset(Dataset):
     def __init__(self, dataset_name, n_classes, class_labels, images, transform, transform_t=None, transform_norm=None):
         """Construct the SyntheticDataset class."""
         self.images = images
+        self.labels = None  # placeholder for labels
         self.transform = transform
         self.transform_t = transform_t
         self.transform_norm = transform_norm
@@ -47,6 +48,10 @@ class SyntheticDataset(Dataset):
         """Return the images."""
         return self.images
 
+    def get_labels(self):
+        """Return the labels."""
+        return self.labels
+
     def get_dataset_name(self):
         """Return the dataset name."""
         return self.dataset_name
@@ -66,6 +71,10 @@ class SyntheticDataset(Dataset):
     def set_images(self, images):
         """Set the images."""
         self.images = images
+
+    def set_labels(self, labels):
+        """Set the labels."""
+        self.labels = labels
 
     def get_class_idx(self, label):
         """Get the index of the class, given its label."""

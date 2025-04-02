@@ -191,9 +191,9 @@ class LatentClassifierGuidance(DiffusionPipeline):
                 if guidance_rescale > 0:
                     noise_prediction = self.rescale_noise_cfg(noise_prediction, noise_pred_text, guidance_rescale)
 
-            # 3. compute classifier guidance (if frequency allows)
+            # 3. compute classifier guidance (if frequency and alpha value allows)
             metric = -1
-            if (guidance_freq != 0) and (i % guidance_freq == 0):
+            if (guidance_freq != 0) and (i % guidance_freq == 0) and (alpha > 0):
                 metric, grad = self.calculate_gradient(
                     classifier, transformation, labels_idx, latents, t, prompt_emb, guidance_type
                 )

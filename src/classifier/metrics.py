@@ -12,7 +12,7 @@ from torch.nn import functional as F
 
 MULTICLASS_METRICS = [
     "entropy",  # based on probabilities
-    "norm-entropy",
+    # "norm-entropy",
     "cross-entropy",  # based on logits
     "margin-top2",  # not great if the top2 are not the classes that I wanted
     "deepgini",  # similar to entropy

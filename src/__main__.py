@@ -19,20 +19,27 @@ from tqdm import tqdm
 from transformers import CLIPModel, CLIPTokenizer
 
 from src.classifier.factory import ClassifierFactory
-from src.classifier.metrics import UNCERTAINTY_METRICS
+from src.classifier.metrics import (
+    MULTICLASS_METRICS,
+    UNCERTAINTY_METRICS,
+)
 from src.dataset.aux import get_tst_dataset_streaming
 from src.dataset.factory import DatasetFactory
 from src.evaluation import (
+    calculate_evaluation_metrics,
+    calculate_feature_metrics,
     calculate_fid_metric,
-    calculate_synthetic_metrics,
     prepare_dataset_results,
+)
+from src.utils import generate_group_name, generate_run_id, load_configurations
+from src.visualization import (
     visualize_class_distributions,
     visualize_confusion,
+    visualize_features_umap,
     visualize_metrics_distributions,
     visualize_sample_synthetic_images,
     visualize_top_synthetic_metric,
 )
-from src.utils import generate_group_name, generate_run_id, load_configurations
 
 
 def save_images_to_disk(images):
@@ -202,7 +209,7 @@ def stress_test_classifier(
     real_images, real_labels, class_labels = get_tst_dataset_streaming(
         dataset_config["name"],
         dataset_config["split"],
-        evaluation_config["num-images"],
+        5000,  # evaluation_config["num-images"], # TODO: I need to solve the problem of imbalanced data
         dataset_config["subset"],
     )
     real_dataset = DatasetFactory.dataset_from_lib(
@@ -213,6 +220,8 @@ def stress_test_classifier(
         class_labels,
         real_images,
     )
+    real_dataset.set_labels(real_labels)
+
     real_dataset_res = prepare_dataset_results(
         real_dataset,
         classifier,
@@ -220,7 +229,6 @@ def stress_test_classifier(
         default_configs["device"],
         evaluation_config["mc-dropout"]["n-samples"],
         evaluation_config["mc-dropout"]["threshold"],
-        gt=real_labels,
     )
 
     torch.cuda.empty_cache()
@@ -252,7 +260,7 @@ def stress_test_classifier(
     if default_configs["log-images"]:
         save_images_to_disk(images)
 
-    # prepare results, from synthetic dataset
+    # compute metrics that need the classifer
     synth_dataset_res = prepare_dataset_results(
         synth_dataset,
         classifier,
@@ -262,60 +270,55 @@ def stress_test_classifier(
         evaluation_config["mc-dropout"]["threshold"],
     )
 
-    # EVALUATION of the synthetic dataset
-    # log uncertainty metrics
-    for unc_metric in UNCERTAINTY_METRICS:
-        mean_unc_metric = synth_dataset_res[unc_metric].mean()
-        # not all uncertainty metrics are available all the time
-        if not math.isnan(mean_unc_metric):
-            wandb.log({f"{unc_metric}": mean_unc_metric})
-            fig = visualize_top_synthetic_metric(
-                synth_dataset, synth_dataset_res, unc_metric, default_configs["display-rgb"]
-            )
-            wandb.log({f"{unc_metric}_sample": wandb.Image(fig)})
-
-    # from features:
-
-    # quality metrics (Improved precision, Improved Recall, Density and Coverage)
-    metrics, features_umap = calculate_synthetic_metrics(
+    # compute metrics that need features and target (currently is only KDN)
+    synth_metrics, real_features, fake_features = calculate_feature_metrics(
         real_dataset,
         synth_dataset,
+        diffusion_config["args"]["classes"],
         default_configs["batch-size"],
         default_configs["device"],
     )
-    wandb.log(metrics)
-    if default_configs["log-plots"]:
-        wandb.log({"umap": wandb.Image(features_umap)})
+    synth_dataset_res = pd.concat([synth_dataset_res, synth_metrics], axis=1)
 
-    # FID score (calculated seperatly because it needs a different feature extractor)
+    # evaluation of dataset
+    eval_metrics_name = list(set(UNCERTAINTY_METRICS) | set(MULTICLASS_METRICS) | set(synth_metrics.columns))
+    synth_dataset_metrics = synth_dataset_res[eval_metrics_name]
+    eval_metrics = calculate_evaluation_metrics(real_features, fake_features, synth_dataset_metrics)
+
+    # fid needs to be calulated in a different way
     fid_value = calculate_fid_metric(
         real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
     )
-    wandb.log({"FID_score": fid_value})
+    eval_metrics["fid"] = fid_value
 
-    # from probabilities
+    # log metrics
+    wandb.log(eval_metrics)
 
-    # distributions (boxplot): metric and classes
     if default_configs["log-plots"]:
+        # umap visualization of features
+        features_umap = visualize_features_umap(real_features, fake_features)
+        wandb.log({"umap": wandb.Image(features_umap)})
 
+        # images with top entropy
+        fig = visualize_top_synthetic_metric(
+            synth_dataset, synth_dataset_res, sort_metric="entropy", top_n=5, display_rgb=default_configs["display-rgb"]
+        )
+        wandb.log({"entropy_sample": wandb.Image(fig)})
+
+        # metric distribution (real vs fake) - boxplot
         real_vs_synth = pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"]).reset_index()
         real_vs_synth = real_vs_synth.rename(columns={"level_0": "keys"}).drop(columns=["level_1"])
-
-        # metric distribution (real vs fake)
         dist_metric = visualize_metrics_distributions(real_vs_synth, dataset_config["n_classes"])
         wandb.log({"dist_metrics": wandb.Image(dist_metric)})
 
-        # visualize label information, if number of classes is small
+        # class distributions for top classes - boxplot
         # TODO: order by the classes most present in the synthetic dataset, and display top-5
-
         top_5_classes = synth_dataset_res.groupby("pred").size().sort_values(ascending=False).head(5).index
         real_vs_synth_filter = real_vs_synth[real_vs_synth["pred"].isin(top_5_classes)]
-
-        # class distributions for top classes
         dist_labels = visualize_class_distributions(real_vs_synth_filter, top_n=5)
         wandb.log({"dist_labels": wandb.Image(dist_labels)})
 
-        # ambiguity matrix
+        # ambiguity matrix (only if low number of classes)
         if dataset_config["n_classes"] <= 10:
             viz_pairs, table_confusion = visualize_confusion(
                 real_dataset_res,
@@ -327,10 +330,9 @@ def stress_test_classifier(
             wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
 
     # sample: grid of images and respective probs
-
     # entropy is default metric to sort, if we have no guidance
     sort_metric = diffusion_config["args"]["guidance"] if diffusion_config["pipeline"] == "guidance" else "entropy"
-    grid, results = visualize_sample_synthetic_images(
+    grid, _ = visualize_sample_synthetic_images(
         synth_dataset,
         synth_dataset_res,
         evaluation_config["viz-sample-size"],
@@ -339,7 +341,7 @@ def stress_test_classifier(
         n_cols=5,
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
-    wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
+    # wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
 
     # finish wandb
     wandb.finish()

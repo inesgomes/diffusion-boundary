@@ -117,11 +117,9 @@ def prepare_dataset_results(dataset, classifier, target, batch_size, device, num
     metrics = list(set(metrics) | set(UNCERTAINTY_METRICS))
     target_idx = [dataset.get_class_idx(class_name) for class_name in target]
     for metric in metrics:
-        metric_result = (
-            compute_metric(metric, probs, probs_dropout=probs_dropout, labels_idx=target_idx).detach().cpu().numpy()
-        )
-        if not np.all(np.isnan(metric_result)):
-            results[metric] = metric_result
+        metric_result = compute_metric(metric, probs, probs_dropout=probs_dropout, labels_idx=target_idx)
+        if not torch.all(torch.isnan(metric_result)):
+            results[metric] = torch.abs(metric_result).detach().cpu().numpy()
 
     # (extra) calculate accuracy and show it, if labels exist
     if labels is not None:
@@ -202,7 +200,7 @@ def compute_kdn(real_features, real_labels, fake_features, boundary_classes, k=6
 
         disagreements.append(disagreement)
 
-    # indices as a list of strings\
+    # indices as a list of strings
     # TODO update to get the real label name
     lst_nbr = [" ".join(map(str, sublist)) for sublist in nbr_labels_lst]
 
@@ -219,7 +217,7 @@ def calculate_feature_metrics(real_dataset, fake_dataset, target, batch_size, de
     fake_features, _ = get_dataset_features(fake_dataset, batch_size, device)
 
     # calculate metrics
-    kdn_results, kdn_nbr = compute_kdn(real_features, real_labels, fake_features, boundary_labels, k=6)
+    kdn_results, kdn_nbr = compute_kdn(real_features, real_labels, fake_features, boundary_labels, k=10)
     synth_metrics = pd.DataFrame({"kdn": kdn_results, "kdn_nbr": kdn_nbr})
 
     return synth_metrics, real_features, fake_features

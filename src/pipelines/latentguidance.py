@@ -51,7 +51,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
     def calculate_gradient(self, classifier, transformation, labels_idx, latents, t, prompt_embd, guidance_type):
         """Calculate the gradient of the selected metric with respect to the images."""
         # start the gradient calculation
-        latents = latents.detach().requires_grad_(True).to(self.device)
+        latents = latents.clone().detach().requires_grad_(True).to(self.device)
 
         # redo noise prediction, but only for the original latent and original prompt
         latent_scaled = self.scheduler.scale_model_input(latents, t)
@@ -74,10 +74,10 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # compute the gradient, in relation to the original latent
         grad = torch.autograd.grad(metric, latents)[0]
 
-        # scale gradients
-        scaled_gradients = grad / (grad.norm(2).detach() + 1e-10) * latents.norm(2).detach()
+        # norm gradients to Linf norm (according to https://arxiv.org/pdf/2203.17260)
+        normalized_grad = grad / (torch.max(torch.abs(grad)).detach() + 1e-10)
 
-        return metric, scaled_gradients
+        return metric, normalized_grad
 
     def decode_latents(self, latents, output_type=None):
         """Decode the latents to images. Can be PIL (if explicit) or tensor."""
@@ -123,7 +123,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         classifier = kwargs.get("classifier", None)
         transformation = kwargs.get("transformation", None)
         labels_idx = kwargs.get("labels_idx", None)
-        alpha = kwargs.get("alpha", None)
+        alpha = kwargs.get("alpha", 0)
         guidance_type = kwargs.get("guidance_type", None)
         guidance_freq = kwargs.get("guidance_freq", 1)
 
@@ -175,6 +175,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
 
+        metric = None
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
             # expand the latents to avoid doing two forward passes
             latent_model_input = torch.cat([latents] * 2) if do_cfg else latents
@@ -192,7 +193,6 @@ class LatentClassifierGuidance(DiffusionPipeline):
                     noise_prediction = self.rescale_noise_cfg(noise_prediction, noise_pred_text, guidance_rescale)
 
             # 3. compute classifier guidance (if frequency and alpha value allows)
-            metric = -1
             if (guidance_freq != 0) and (i % guidance_freq == 0) and (alpha > 0):
                 metric, grad = self.calculate_gradient(
                     classifier, transformation, labels_idx, latents, t, prompt_emb, guidance_type
@@ -210,7 +210,10 @@ class LatentClassifierGuidance(DiffusionPipeline):
             # log the images over time, if only one image is being processed
             if log_denoising_images & (batch_size == 1):
                 image = self.decode_latents(latents, output_type)[0]
-                wandb.log({"denoise_image": wandb.Image(image, caption=f"{metric:.4f}"), "_diffusion_step": i})
+                caption = f"beta={guidance_scale}"
+                if metric is not None:
+                    caption = f"{guidance_type}: {metric:.4f}\nalpha={alpha}\n" + caption
+                wandb.log({"denoise_image": wandb.Image(image, caption=caption), "_diffusion_step": i})
 
         # deliver the synthetic images
         images = self.decode_latents(latents, output_type)

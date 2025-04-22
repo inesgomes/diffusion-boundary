@@ -75,8 +75,8 @@ def load_configurations(config_path):
         config["diffusion"]["args"]["guidance"] = [config["diffusion"]["args"]["guidance"]]
     if not isinstance(config["diffusion"]["args"]["alpha"], list):
         config["diffusion"]["args"]["alpha"] = [config["diffusion"]["args"]["alpha"]]
-    if not isinstance(config["diffusion"]["args"]["guidance-freq"], list):
-        config["diffusion"]["args"]["guidance-freq"] = [config["diffusion"]["args"]["guidance-freq"]]
+    if not isinstance(config["diffusion"]["args"]["guidance-scale"], list):
+        config["diffusion"]["args"]["guidance-scale"] = [config["diffusion"]["args"]["guidance-scale"]]
 
     # check if dataset subset exist
     if "subset" not in config["dataset"]:

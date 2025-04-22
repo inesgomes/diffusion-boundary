@@ -75,7 +75,7 @@ def compute_margin_top2(probs):
     Goal: minimize
     """
     top_probs, _ = torch.topk(probs, 2)
-    return 1 - (top_probs[:, 0] - top_probs[:, 1])
+    return -(top_probs[:, 0] - top_probs[:, 1])
 
 
 def compute_deepgini(probs):
@@ -94,7 +94,7 @@ def compute_least_confidence(probs):
     Works for multiclass and binary classification.
     Goal: maximize
     """
-    return probs.max(dim=1).values
+    return 1 - probs.max(dim=1).values
 
 
 def compute_second_rank(probs):

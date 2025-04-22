@@ -6,13 +6,14 @@ user-args:
   seed: 42
   batch-size: 1
   save-disk: False
-  log-plots: True
+  log-plots: False
   display-rgb: True
 
 dataset:
   name: ILSVRC/imagenet-1k
   n_classes: 1000
   split: train
+  num-images: 10 # 5000
 
 classifier:
   name: microsoft/resnet-50 # imagenet-1k 224x224
@@ -20,26 +21,38 @@ classifier:
 
 diffusion:
   pipeline: latentguidance
-  name: CompVis/stable-diffusion-v1-4
+  name: CompVis/stable-diffusion-v1-4 # stabilityai/stable-diffusion-2
   type: sd
   args:
-    num-inference-steps: 30
-    prompt-strategy: One realistic hybrid of <classes>, even for humans. 
+    num-inference-steps: 40
+    prompt-strategy: <classes>
       # <classes>
-      # One realistic hybrid of <classes>, even for humans. 
-      # A realistic mix of <classes>
-      # A realistic mix of <classes>, combining the features of both, blending the shapes, sizes, and general appearance of each. 
-    classes:
-      - pelican
-      - flamingo
-    guidance: kl-div-target
-    alpha: 0.01
+      # One realistic hybrid of <classes>, even for humans
+      # An ambiguous but realistic <classes>
+    classes: # pelican vs flamingo
+      - Chihuahua
+      - papillon
+    guidance: 
+      - kl-div-target # entropy
+    # alpha
+    alpha: 
+      #- 0
+      - 0.01
+      - 0.1
+      - 0.25
+      - 0.4
+      - 0.5
     guidance-freq: 1
-    guidance-scale: 3.5
+    # beta
+    guidance-scale: 
+      - 1
+      - 3
+      - 6
+      - 9
     guidance-rescale: 0.8
     negative-prompt: blurry, deformed, low quality, watermark, text, extra limbs, ugly # if not specified, it is empty 
 
 evaluation:
-  num-images: 10
+  num-images: 1
   viz-sample-size: 10
   certainty-threshold: 0.8

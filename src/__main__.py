@@ -145,7 +145,14 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
         classes_idx = [dataset.get_class_idx(class_name) for class_name in diffusion_arguments["classes"]]
         # the prompt strategy is defined in the yaml, as well as all the classes needed
         classes = f"{' and '.join(diffusion_arguments['classes'])}"
-        prompt = diffusion_arguments["prompt-strategy"].replace("<classes>", classes)
+        prompt = (
+            ""
+            if diffusion_arguments["prompt-strategy"] is None
+            else diffusion_arguments["prompt-strategy"].replace("<classes>", classes)
+        )
+        negative_prompt = (
+            "" if diffusion_arguments["negative-prompt"] is None else diffusion_arguments["negative-prompt"]
+        )
         print(">> Prompt: ", prompt)
         args.update(
             {
@@ -153,7 +160,7 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
                 "labels_idx": classes_idx,
                 "guidance_scale": diffusion_arguments["guidance-scale"],
                 "guidance_rescale": diffusion_arguments["guidance-rescale"],
-                "negative_prompt": diffusion_arguments["negative-prompt"],
+                "negative_prompt": negative_prompt,
             }
         )
     return args
@@ -223,11 +230,11 @@ def stress_test_classifier(
             default_configs["device"],
         )
 
-    # prepare the original dataset, for evaluation purposes, with the same number of samples as the generated ones
+    # get original dataset, to find the labels
     real_images, real_labels, class_labels = get_tst_dataset_streaming(
         dataset_config["name"],
         dataset_config["split"],
-        max(evaluation_config["num-images"], 5000),
+        max(evaluation_config["num-images"], dataset_config["num-images"]),
         dataset_config["subset"],
     )
     real_dataset = DatasetFactory.dataset_from_lib(
@@ -239,17 +246,6 @@ def stress_test_classifier(
         real_images,
     )
     real_dataset.set_labels(real_labels)
-
-    real_dataset_res = prepare_dataset_results(
-        real_dataset,
-        classifier,
-        diffusion_config["args"]["classes"],
-        default_configs["batch-size"],
-        default_configs["device"],
-        evaluation_config["mc-dropout"]["n-samples"],
-        evaluation_config["mc-dropout"]["threshold"],
-    )
-
     torch.cuda.empty_cache()
 
     # prepare synthetic dataset object
@@ -276,11 +272,27 @@ def stress_test_classifier(
 
     torch.cuda.empty_cache()
 
-    # save to disk, if needed
+    # if we need to generate only 1 image, finish without evaluation
+    if evaluation_config["num-images"] == 1:
+        wandb.finish()
+        return 0
+
+    # save images to disk, if needed
     if default_configs["save-disk"]:
         save_images_to_disk(images)
 
-    # compute metrics that need the classifer
+    # compute reference dataset metrics that need the classifer
+    real_dataset_res = prepare_dataset_results(
+        real_dataset,
+        classifier,
+        diffusion_config["args"]["classes"],
+        default_configs["batch-size"],
+        default_configs["device"],
+        evaluation_config["mc-dropout"]["n-samples"],
+        evaluation_config["mc-dropout"]["threshold"],
+    )
+
+    # compute synthetic dataset metrics that need the classifer
     synth_dataset_res = prepare_dataset_results(
         synth_dataset,
         classifier,
@@ -291,7 +303,7 @@ def stress_test_classifier(
         evaluation_config["mc-dropout"]["threshold"],
     )
 
-    # compute metrics that need features and target (currently is only KDN)
+    # compute synthetic metrics that need features and target (currently is only KDN)
     synth_metrics, real_features, fake_features = calculate_feature_metrics(
         real_dataset,
         synth_dataset,
@@ -302,10 +314,10 @@ def stress_test_classifier(
     synth_dataset_res = pd.concat([synth_dataset_res, synth_metrics], axis=1)
     valid_metrics = get_valid_metrics(dataset_config["n_classes"], synth_dataset_res.columns)
 
-    # compute evaluation of dataset
+    # compute evaluation of synthetic dataset
     eval_metrics = calculate_evaluation_metrics(real_features, fake_features, synth_dataset_res, valid_metrics)
 
-    # fid needs to be calulated in a different way
+    # (fid needs to be calulated in a different way)
     fid_value = calculate_fid_metric(
         real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
     )
@@ -319,24 +331,29 @@ def stress_test_classifier(
         features_umap = visualize_features_umap(real_features, fake_features)
         wandb.log({"umap": wandb.Image(features_umap)})
 
-        # images with top entropy
+        # top n images with max guidance metric
         fig = visualize_top_synthetic_metric(
-            synth_dataset, synth_dataset_res, sort_metric="entropy", top_n=5, display_rgb=default_configs["display-rgb"]
+            synth_dataset,
+            synth_dataset_res,
+            sort_metric=diffusion_config["args"]["guidance"],
+            top_n=5,
+            display_rgb=default_configs["display-rgb"],
         )
-        wandb.log({"entropy_sample": wandb.Image(fig)})
+        wandb.log({f"{diffusion_config['args']['guidance']}_sample": wandb.Image(fig)})
 
         # metric distribution (real vs fake) - boxplot
-        real_vs_synth = pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"]).reset_index()
-        real_vs_synth = real_vs_synth.rename(columns={"level_0": "keys"}).drop(columns=["level_1"])
+        real_vs_synth = (
+            pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"])
+            .reset_index()
+            .rename(columns={"level_0": "keys"})
+            .drop(columns=["level_1"])
+        )
 
         dist_metric = visualize_metrics_distributions(real_vs_synth, valid_metrics)
         wandb.log({"dist_metrics": wandb.Image(dist_metric)})
 
         # class distributions for top classes - boxplot
-        # TODO: order by the classes most present in the synthetic dataset, and display top-5
-        top_5_classes = synth_dataset_res.groupby("pred").size().sort_values(ascending=False).head(5).index
-        real_vs_synth_filter = real_vs_synth[real_vs_synth["pred"].isin(top_5_classes)]
-        dist_labels = visualize_class_distributions(real_vs_synth_filter, top_n=5)
+        dist_labels = visualize_class_distributions(real_vs_synth, top_n=5)
         wandb.log({"dist_labels": wandb.Image(dist_labels)})
 
         # ambiguity matrix (only if low number of classes)
@@ -369,6 +386,7 @@ def stress_test_classifier(
 
     # finish wandb
     wandb.finish()
+    return 0
 
 
 def main(configuration):
@@ -381,17 +399,17 @@ def main(configuration):
 
     guidance_metric = configuration["diffusion"]["args"]["guidance"]
     alpha = configuration["diffusion"]["args"]["alpha"]
-    guidance_freq = configuration["diffusion"]["args"]["guidance-freq"]
+    guidance_scale = configuration["diffusion"]["args"]["guidance-scale"]
     diffusion_config = configuration["diffusion"]
 
     i = 1
-    max_i = len(guidance_metric) * len(alpha) * len(guidance_freq)
+    max_i = len(guidance_metric) * len(alpha) * len(guidance_scale)
     for guidance_metric_value in guidance_metric:
         for alpha_value in alpha:
-            for guidance_freq_value in guidance_freq:
+            for guidance_scale_value in guidance_scale:
                 diffusion_config["args"]["guidance"] = guidance_metric_value
                 diffusion_config["args"]["alpha"] = alpha_value
-                diffusion_config["args"]["guidance-freq"] = guidance_freq_value
+                diffusion_config["args"]["guidance-scale"] = guidance_scale_value
 
                 # apply stress testing
                 print(f"Starting stress test {i}/{max_i}...")

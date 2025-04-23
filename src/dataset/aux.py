@@ -80,17 +80,31 @@ def gen_from_iterable_dataset(iterable_ds):
     yield from iterable_ds
 
 
+def gen_and_filter_from_iterable_dataset(iterable_ds, subset, n_samples):
+    """Help generate a dataset from an iterable, filtering by class but only the number of samples asked."""
+    count = 0
+    for example in iterable_ds:
+        if example["label"] in subset:
+            yield example
+            count += 1
+            if count >= n_samples:
+                break
+
+
 def get_tst_dataset_streaming(dataset_name, dataset_split="test", n_samples=None, subset=None):
     """Get a dataset in streaming mode. This is useful for large datasets as the dataset is not loaded into memory (only after sampling)."""
-    if subset is not None:
-        raise NotImplementedError("Subset is not yet implemented for streaming datasets")
-
     # get a dataset from huggingface in streaming mode
     dataset = load_dataset(dataset_name, split=dataset_split, streaming=True)
-    dataset_sample = dataset.shuffle(seed=42, buffer_size=5000).take(n_samples)
+    dataset = dataset.shuffle(seed=42, buffer_size=5000)
 
     # from iterable to dataset
-    ds = Dataset.from_generator(partial(gen_from_iterable_dataset, dataset_sample), features=dataset_sample.features)
+    if subset is not None:
+        generator = partial(gen_and_filter_from_iterable_dataset, dataset, subset, n_samples)
+    else:
+        dataset_sample = dataset.take(n_samples)
+        generator = partial(gen_from_iterable_dataset, dataset_sample)
+
+    ds = Dataset.from_generator(generator, features=dataset_sample.features)
 
     # the class labels for the dataset
     class_labels = ds.info.features["label"].names

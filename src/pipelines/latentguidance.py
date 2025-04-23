@@ -176,7 +176,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         self.scheduler.set_timesteps(num_inference_steps)
 
         metric = None
-        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
+        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps), start=1):
             # expand the latents to avoid doing two forward passes
             latent_model_input = torch.cat([latents] * 2) if do_cfg else latents
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)

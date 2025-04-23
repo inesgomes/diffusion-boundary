@@ -3,6 +3,7 @@
 import argparse
 import math
 import os
+from datetime import datetime
 
 import pandas as pd
 import torch
@@ -24,7 +25,7 @@ from src.classifier.metrics import (
     MULTICLASS_METRICS,
     UNCERTAINTY_METRICS,
 )
-from src.dataset.aux import get_tst_dataset_streaming
+from src.dataset.aux import get_tst_dataset
 from src.dataset.factory import DatasetFactory
 from src.evaluation import (
     EVAL_METRICS,
@@ -33,7 +34,7 @@ from src.evaluation import (
     calculate_fid_metric,
     prepare_dataset_results,
 )
-from src.utils import generate_group_name, generate_run_id, load_configurations
+from src.utils import generate_run_id, load_configurations
 from src.visualization import (
     visualize_class_distributions,
     visualize_confusion,
@@ -231,7 +232,7 @@ def stress_test_classifier(
         )
 
     # get original dataset, to find the labels
-    real_images, real_labels, class_labels = get_tst_dataset_streaming(
+    real_images, real_labels, class_labels = get_tst_dataset(
         dataset_config["name"],
         dataset_config["split"],
         max(evaluation_config["num-images"], dataset_config["num-images"]),
@@ -391,7 +392,6 @@ def stress_test_classifier(
 
 def main(configuration):
     """Run the stress test per configuration."""
-    group_name = generate_group_name(configuration)
     user_configs = configuration["user-args"]
     dataset_config = configuration["dataset"]
     classifier_config = configuration["classifier"]
@@ -401,6 +401,9 @@ def main(configuration):
     alpha = configuration["diffusion"]["args"]["alpha"]
     guidance_scale = configuration["diffusion"]["args"]["guidance-scale"]
     diffusion_config = configuration["diffusion"]
+
+    # the group will be a timestamp that this main started, so that we can join multiple runs
+    group_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     i = 1
     max_i = len(guidance_metric) * len(alpha) * len(guidance_scale)

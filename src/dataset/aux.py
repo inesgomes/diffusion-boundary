@@ -5,12 +5,13 @@ Returns:
     _type_: _description_ dataset
 """
 
-import random
+import os
+from collections import defaultdict
 from functools import partial
 
 import torch
 import torchvision.transforms as T
-from datasets import Dataset, load_dataset
+from datasets import Dataset, get_dataset_config_info, load_dataset, load_from_disk
 
 TRANSFORMATIONS = {
     "mnist": T.Compose(
@@ -60,54 +61,64 @@ TRANSFORMATIONS = {
 }
 
 
-def get_tst_dataset(dataset_name, n_samples=None, subset=None):
-    """Get a dataset. Needs to load the full dataset into memory (may be a drawback for large datasets)."""
-    # get a dataset from huggingface
-    samples = load_dataset(dataset_name, split="test", streaming=True)
-    key = samples.column_names[0]  # (img or image depending on the dataset)
-    # select only the relevant labels, if that is required
-    if subset is not None:
-        samples = samples.filter(lambda x: x["label"] in subset)
-    # select number of samples
-    if n_samples is not None:
-        dataset_subset = samples.select(random.sample(range(len(samples)), n_samples))
-        return dataset_subset[key], dataset_subset["label"]
-    return samples[key], samples["label"]
-
-
 def gen_from_iterable_dataset(iterable_ds):
     """Help generate a dataset from an iterable."""
     yield from iterable_ds
 
 
-def gen_and_filter_from_iterable_dataset(iterable_ds, subset, n_samples):
+def gen_balanced_samples(iterable_ds, subset, n_samples):
     """Help generate a dataset from an iterable, filtering by class but only the number of samples asked."""
-    count = 0
+    class_counts = defaultdict(int)
+    samples_per_class = n_samples / len(subset)
+
     for example in iterable_ds:
-        if example["label"] in subset:
+        label = example["label"]
+        if label in subset and class_counts[label] < samples_per_class:
             yield example
-            count += 1
-            if count >= n_samples:
+            class_counts[label] += 1
+            if sum(class_counts.values()) >= n_samples:
                 break
 
 
-def get_tst_dataset_streaming(dataset_name, dataset_split="test", n_samples=None, subset=None):
+def get_tst_dataset(dataset_name, dataset_split="test", n_samples=1, subset=None):
+    """Given a dataset name, gets its labels and check if we have the dataset in disk or if we should get it in streaming mode."""
+    # Get label names from configuration
+    config_info = get_dataset_config_info(dataset_name, "default")
+    class_labels = config_info.features["label"].names
+
+    # get subset index given the labels
+    subset_idx = [class_labels.index(name) for name in subset] if subset else []
+
+    # check if dataset is in disk
+    subset_name = "_".join(map(str, subset_idx))
+
+    path = os.getenv("FILESDIR") + f"/dataset/{dataset_name}_{n_samples}_{subset_name}"
+    print("Reference dataset path: ", path)
+
+    if os.path.exists(path):
+        ds = load_from_disk(path)
+    else:
+        ds = get_tst_dataset_streaming(dataset_name, dataset_split, n_samples, subset_idx)
+        print("saving reference dataset...")
+        os.makedirs(path, exist_ok=True)
+        ds.save_to_disk(path)
+
+    key = ds.column_names[0]  # (img or image depending on the dataset)
+    return ds[key], ds["label"], class_labels
+
+
+def get_tst_dataset_streaming(dataset_name, dataset_split, n_samples, subset_idx):
     """Get a dataset in streaming mode. This is useful for large datasets as the dataset is not loaded into memory (only after sampling)."""
     # get a dataset from huggingface in streaming mode
     dataset = load_dataset(dataset_name, split=dataset_split, streaming=True)
-    dataset = dataset.shuffle(seed=42, buffer_size=5000)
+    dataset = dataset.shuffle(seed=42, buffer_size=10000)
 
     # from iterable to dataset
-    if subset is not None:
-        generator = partial(gen_and_filter_from_iterable_dataset, dataset, subset, n_samples)
+    if len(subset_idx) == 0:
+        generator = partial(gen_balanced_samples, dataset, subset_idx, n_samples)
     else:
         dataset_sample = dataset.take(n_samples)
         generator = partial(gen_from_iterable_dataset, dataset_sample)
 
-    ds = Dataset.from_generator(generator, features=dataset_sample.features)
-
-    # the class labels for the dataset
-    class_labels = ds.info.features["label"].names
-    # (img or image depending on the dataset)
-    key = ds.column_names[0]
-    return ds[key], ds["label"], class_labels
+    ds = Dataset.from_generator(generator, features=dataset.features)
+    return ds

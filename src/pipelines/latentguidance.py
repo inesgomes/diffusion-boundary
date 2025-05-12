@@ -64,6 +64,8 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # decode the latents to images and transform to the classifier format
         images = self.decode_latents(latents_0)
 
+        # TODO: save these images here
+
         # classifier transformation
         images_t = transformation.transform_images(images)
 

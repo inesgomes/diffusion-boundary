@@ -332,11 +332,12 @@ def stress_test_classifier(
         features_umap = visualize_features_umap(real_features, fake_features)
         wandb.log({"umap": wandb.Image(features_umap)})
 
-        # top n images with max guidance metric
+        # top n images with guidance metric
         fig = visualize_top_synthetic_metric(
             synth_dataset,
             synth_dataset_res,
             sort_metric=diffusion_config["args"]["guidance"],
+            ascending=True,  # minimize
             top_n=5,
             display_rgb=default_configs["display-rgb"],
         )
@@ -383,7 +384,7 @@ def stress_test_classifier(
 
     if default_configs["save-disk"]:
         save_results_to_disk(synth_dataset_res, "synthetic")
-        save_results_to_disk(real_dataset_res, "real")
+        # save_results_to_disk(real_dataset_res, "real")
 
     # finish wandb
     wandb.finish()

@@ -54,10 +54,10 @@ def visualize_2D_probability_grid(images, probabilities, n_cols):
     return grid_image
 
 
-def visualize_top_synthetic_metric(images_dataset, results, sort_metric, top_n=5, display_rgb=True):
+def visualize_top_synthetic_metric(images_dataset, results, sort_metric, ascending, top_n=5, display_rgb=True):
     """Visualize the top N synthetic images based on a given metric."""
     # sort results by metric and select top N
-    top_results = results.sort_values(by=sort_metric, ascending=False).head(top_n)
+    top_results = results.sort_values(by=sort_metric, ascending=ascending).head(top_n)
     # create figure
     fig, axes = plt.subplots(1, top_n, figsize=(1.5 * top_n, 2.5))
 
@@ -83,8 +83,8 @@ def visualize_sample_synthetic_images(
     # order dataset by metric and select top sample
     results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
 
-    # check how many elements have at least half of the max value for the metric
-    mask = synth_dataset_res[sort_metric] >= synth_dataset_res[sort_metric].max() / 2
+    # check how many elements have less than half of the max value for the metric (minimize version)
+    mask = synth_dataset_res[sort_metric] <= synth_dataset_res[sort_metric].max() / 2
     if mask.sum() <= sample_size:
         results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
     else:

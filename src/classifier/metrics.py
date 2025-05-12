@@ -129,14 +129,12 @@ def compute_probs_kl_divergence(probs, labels_idx):
 
     Goal: minimize
     """
-    n = len(labels_idx)
-    max_prob = 1 / n
     target = torch.zeros(*probs.shape, device=probs.device)
     for idx in labels_idx:
-        target[:, idx] = max_prob
+        target[:, idx] = 1 / len(labels_idx)
     target = torch.clip(target, min=1e-10)
 
-    return -F.kl_div(probs.log(), target, reduction="batchmean")
+    return -F.kl_div(probs.log(), target, reduction="none").sum(dim=1)
 
 
 def compute_gaussian_loss(probs, logits):

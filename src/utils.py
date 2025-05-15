@@ -15,15 +15,6 @@ def generate_run_id():
     return f"{current_time.strftime('%Y-%m-%d')}T{seconds_since_midnight}"
 
 
-def generate_group_name(configuration):
-    """Generate a unique group name based on the configuration."""
-    subset = configuration["dataset"].get("subset")
-    if subset is not None:
-        subset = list(map(str, subset))
-    dataset_name = f"{configuration['dataset']['name']}{'v'.join(subset) if subset else ''}"
-    return f"{dataset_name}_{configuration['diffusion']['pipeline']}"
-
-
 def load_configurations(config_path):
     """Load configuration file from path and modify accondingly."""
     try:
@@ -39,6 +30,10 @@ def load_configurations(config_path):
         print("Dataset name must be defined in the configuration file.")
         sys.exit(1)
 
+    # save images and datasets locally
+    if "save-disk" not in config:
+        config["save-disk"] = False
+
     # manual vs random seed
     if "seed" not in config:
         config["seed"] = random.randint(1, 100)
@@ -53,19 +48,32 @@ def load_configurations(config_path):
     # check if guidance exists
     if "pipeline" not in config["diffusion"]:
         config["diffusion"]["pipeline"] = None
-
     if "type" not in config["diffusion"]:
         config["diffusion"]["type"] = None
-
     if "guidance" not in config["diffusion"]["args"]:
         config["diffusion"]["args"]["guidance"] = "noguidance"
+    if "negative-prompt" not in config["diffusion"]["args"]:
+        config["diffusion"]["args"]["negative-prompt"] = ""
 
-    if "prompt" not in config["diffusion"]["args"]:
-        config["diffusion"]["args"]["prompt"] = ""
+    # check if the mc-dropout should be used
+    if "mc-dropout" not in config["evaluation"]:
+        config["evaluation"]["mc-dropout"] = {}
+        config["evaluation"]["mc-dropout"]["n-samples"] = None
+        config["evaluation"]["mc-dropout"]["threshold"] = None
+
+    # transform certain arguments to list
+    if not isinstance(config["diffusion"]["args"]["guidance"], list):
+        config["diffusion"]["args"]["guidance"] = [config["diffusion"]["args"]["guidance"]]
+    if not isinstance(config["diffusion"]["args"]["alpha"], list):
+        config["diffusion"]["args"]["alpha"] = [config["diffusion"]["args"]["alpha"]]
+    if not isinstance(config["diffusion"]["args"]["guidance-scale"], list):
+        config["diffusion"]["args"]["guidance-scale"] = [config["diffusion"]["args"]["guidance-scale"]]
 
     # check if dataset subset exist
     if "subset" not in config["dataset"]:
         config["dataset"]["subset"] = None
+        if "classes" in config["diffusion"]["args"]:
+            config["dataset"]["subset"] = config["diffusion"]["args"]["classes"]
 
     if "split" not in config["dataset"]:
         config["dataset"]["split"] = "test"

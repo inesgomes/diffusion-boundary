@@ -1,0 +1,50 @@
+project: 20250213_hpo_diffusion
+
+user-args: 
+  device: cuda:1
+  seed: 42
+  batch-size: 64
+  log-images: False
+  log-plots: False
+  display-rgb: False # depends on the dataset/classifier
+
+dataset:
+  name: mnist
+  n_classes: 10
+
+classifier:
+  name: farleyknight-org-username/vit-base-mnist
+  lib: transformers
+
+diffusion:
+  pipeline: guidance
+  type: ddpm # pndm, ddpm, ddim
+  name: 1aurent/ddpm-mnist
+  args:
+    num-inference-steps: 100
+    guidance: 
+      - second-rank
+      - norm-entropy
+      - deepgini 
+      - margin-top2
+       - cross-entropy
+      - least-confidence
+    alpha: 
+      - 0.5
+      - 1
+      - 2
+      - 4
+      - 8
+      - 12
+    guidance-freq: 
+      - 1
+      - 2
+      - 5
+
+evaluation:
+  num-images: 4000
+  viz-sample-size: 30
+  certainty-threshold: 0.8
+  mc-dropout:
+    n-samples: 20
+    threshold: 0.3

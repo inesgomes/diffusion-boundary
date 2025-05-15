@@ -1,12 +1,13 @@
-# working
+# NOT working
 project: 20241121_diffusion
 
-device: cuda:1
-seed: 42
-batch-size: 64
-
-log:
-  images: False
+user-args: 
+  device: cuda:1
+  seed: 42
+  batch-size: 64
+  log-images: False
+  log-plots: True
+  display-rgb: True
 
 dataset:
   name: cifar10
@@ -21,12 +22,15 @@ diffusion:
   type: pndm # pndm, ddpm, ddim
   name: google/ddpm-cifar10-32
   args:
-    num-inference-steps: 10
-    guidance: margin-top2 # norm-entropy, margin-top2, margin
-    alpha: 2
+    num-inference-steps: 100
+    guidance: cross-entropy # entropy, norm-entropy, margin, margin-top2, deepgini, least-confidence, cross-entropy
+    alpha: 1
     guidance-freq: 2 # 0 means that the diffusion is without guidance
 
 evaluation:
-  num-images: 100
+  num-images: 1000
   viz-sample-size: 30
   certainty-threshold: 0.85 # this may be automatically computed in some way? (e.g. 1 - 1/n_classes)
+  mc-dropout:
+    n-samples: 15
+    threshold: 0.3

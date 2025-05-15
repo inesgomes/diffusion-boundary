@@ -1,8 +1,13 @@
+# not sure if working
 project: 20241121_diffusion
 
-device: cuda:1
-seed: 42
-batch-size: 64
+user-args: 
+  device: cuda:1
+  seed: 42
+  batch-size: 64
+  log-images: False
+  log-plots: True
+  display-rgb: True
 
 dataset:
   name: cifar10
@@ -18,9 +23,6 @@ diffusion:
   name: google/ddpm-cifar10-32
   args:
     num-inference-steps: 1000
-
-log:
-  images: False
 
 evaluation:
   num-images: 4000

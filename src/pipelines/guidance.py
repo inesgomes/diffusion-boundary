@@ -9,7 +9,6 @@ tutorial: https://huggingface.co/learn/diffusion-course/en/unit2/2#guidance
 from typing import List, Optional, Tuple, Union
 
 import torch
-import torch.nn.functional as F
 import wandb
 from diffusers import DiffusionPipeline, ImagePipelineOutput
 
@@ -37,43 +36,30 @@ class ClassifierGuidance(DiffusionPipeline):
         return images
 
     @torch.enable_grad()
-    def calculate_gradient(self, classifier, transformation, images, guidance_type, pixel_size):
+    def calculate_gradient(self, classifier, transformation, images, noise_prediction, t, guidance_type, alpha):
         """Calculate the gradient of the selected metric with respect to the images."""
-        # TODO: change this -> HEAVY (is there a better way?)
-        original_n_channels = images.shape[1]
+        # require gradient for the images
+        images = images.detach().requires_grad_(True).to(self.device)
 
-        if transformation is not None:
-            images_pil = self.numpy_to_pil(self.tensor_to_numpy(images))
-            images = transformation.transform_images(images_pil)
+        # prediction of the noise model for the current timestep
+        images_0 = self.scheduler.step(noise_prediction, t, images).pred_original_sample
 
-        # Enable gradients for the pixel images
-        # images = images.clone().detach().requires_grad_(True).to(self.device)
-        images = images.clone().requires_grad_(True).to(self.device)
+        # transform according to the classifier
+        images_t = transformation.transform_images(images_0)
 
         # compute the probabilities
-        probs = classifier.predict(images)
+        probs, logits = classifier.predict(images_t)
 
         # compute the metric
-        metric = compute_metric(guidance_type, probs).mean()
+        metric = compute_metric(guidance_type, probs, logits=logits).mean()
+        loss = metric * alpha
 
         # compute the gradient
-        grad = torch.autograd.grad(metric, images)[0]
+        grad = torch.autograd.grad(loss, images)[0]
 
-        # scale gradients for same scale as images
-        scaled_gradients = grad / (grad.norm(2).detach() + 1e-8) * images.norm(2).detach()
+        return metric, grad
 
-        # resize if needed
-        if scaled_gradients.shape[2] != pixel_size:
-            scaled_gradients = F.interpolate(grad, size=(pixel_size, pixel_size), mode="bilinear", align_corners=False)
-
-        # grayscale if needed -> this is a fix to the problem of the classifier outputting 3 channels when the diffuser only uses one channel
-        if (original_n_channels == 1) & (scaled_gradients.shape[1] == 3):
-            grayscale_gradient = scaled_gradients.mean(dim=1, keepdim=True)
-            return metric, grayscale_gradient
-
-        # normal return
-        return metric, scaled_gradients
-
+    @torch.no_grad()
     def __call__(
         self,
         batch_size: int = 1,
@@ -109,26 +95,17 @@ class ClassifierGuidance(DiffusionPipeline):
         self.scheduler.set_timesteps(num_inference_steps)
 
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
-
             # 1. predict noise model_output
-            with torch.no_grad():
-                noise_prediction = self.unet(images, t).sample
+            noise_prediction = self.unet(images, t).sample
 
+            # 2. compute guidance
             if (guidance_freq != 0) and (i % guidance_freq == 0):
-                # require gradient for the images
-                images = images.detach().requires_grad_()
-
-                # prediction of the noise model for the current timestep
-                images_0 = self.scheduler.step(noise_prediction, t, images).pred_original_sample
-
-                # 2. compute guidance
-
                 # Get gradient
                 metric, grad = self.calculate_gradient(
-                    classifier, transformation, images_0, guidance_type, self.unet.config.sample_size
+                    classifier, transformation, images, noise_prediction, t, guidance_type, alpha
                 )
-                images = images.detach() + alpha * grad
-                # images += alpha * grad
+                # update images
+                images = images.detach() + grad
 
                 # log
                 wandb.log({"mean-guidance": metric})

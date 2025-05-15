@@ -3,26 +3,72 @@
 import argparse
 import math
 import os
+from datetime import datetime
 
 import pandas as pd
 import torch
 import wandb
-from diffusers import DDIMPipeline, DDPMPipeline, DiffusionPipeline, PNDMPipeline
+from diffusers import (
+    DDIMPipeline,
+    DDPMPipeline,
+    DiffusionPipeline,
+    LMSDiscreteScheduler,
+    PNDMPipeline,
+)
 from dotenv import load_dotenv
 from tqdm import tqdm
+from transformers import CLIPModel, CLIPTokenizer
 
 from src.classifier.factory import ClassifierFactory
-from src.dataset.aux import get_tst_dataset_streaming
+from src.classifier.metrics import (
+    BINARY_METRICS,
+    MULTICLASS_METRICS,
+    UNCERTAINTY_METRICS,
+)
+from src.dataset.aux import get_tst_dataset
 from src.dataset.factory import DatasetFactory
 from src.evaluation import (
+    EVAL_METRICS,
+    calculate_evaluation_metrics,
+    calculate_feature_metrics,
     calculate_fid_metric,
-    calculate_synthetic_metrics,
     prepare_dataset_results,
-    visualize_confusion,
-    visualize_distributions,
-    visualize_sample_synthetic_images,
 )
-from src.utils import generate_group_name, generate_run_id, load_configurations
+from src.utils import generate_run_id, load_configurations
+from src.visualization import (
+    visualize_class_distributions,
+    visualize_confusion,
+    visualize_features_umap,
+    visualize_metrics_distributions,
+    visualize_sample_synthetic_images,
+    visualize_top_synthetic_metric,
+)
+
+
+def save_images_to_disk(images):
+    """Save images to disk."""
+    path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
+    os.makedirs(path, exist_ok=True)
+    with open(f"{path}/images.pkl", "wb") as f:
+        torch.save(images, f)
+        print("Images saved at", path)
+
+
+def save_results_to_disk(results: pd.DataFrame, name: str):
+    """Save images to disk."""
+    path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
+    os.makedirs(path, exist_ok=True)
+    results.to_pickle(f"{path}/results_{name}.pkl")
+    print("Results saved at", path)
+
+
+def get_valid_metrics(n_classes, dataset_columns):
+    """Get which metrics are valid, given that it is not always possible to compute all metrics. Takes into considering if we have a binary or multiclass problem."""
+    # all possible metrics
+    sample_metrics = BINARY_METRICS if n_classes == 2 else MULTICLASS_METRICS
+    eval_metrics_name = list(set(UNCERTAINTY_METRICS) | set(sample_metrics) | set(EVAL_METRICS))
+    # select only valid metrics (withou NaNs)
+    return [col for col in eval_metrics_name if col in dataset_columns]
 
 
 def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=None, device="cpu"):
@@ -50,28 +96,74 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
     # Handle custom pipeline logic if provided
     custom_pipeline = f"src/pipelines/{pipeline}.py" if pipeline else None
 
+    if diff_type == "sd":
+        # stable diffusion needs clip model
+        clip_model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
+        tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
+
+        # stable diffusion allows float16
+        pipe = pipeline_class.from_pretrained(
+            model,
+            custom_pipeline=custom_pipeline,
+            clip_model=clip_model,
+            tokenizer=tokenizer,
+            torch_dtype=torch.float16,
+            variant="fp16",
+            cache_dir=os.getenv("HF_MODELS_CACHE"),
+        ).to(device)
+        # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
+        pipe.scheduler = LMSDiscreteScheduler.from_config(
+            pipe.scheduler.config,
+            rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
+            timestep_spacing="trailing",  # both together creates error
+            prediction_type="epsilon",
+            use_karras_sigmas=True,  # make sure we are using k-lms version
+        )
+        pipe.enable_attention_slicing()
+        return pipe
+
     # Load and return the pipeline
     return pipeline_class.from_pretrained(
         model, custom_pipeline=custom_pipeline, cache_dir=os.getenv("HF_MODELS_CACHE")
     ).to(device)
 
 
-def create_arguments(pipeline_name, pipeline_type, classifier, dataset, diffusion_arguments):
+def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
     """Get arguments for the diffusion pipeline. Currently only for guidance pipeline."""
     args = {}
-    if pipeline_name == "guidance":
+    if pipeline_name in ("guidance", "latentguidance"):
         args.update(
             {
                 "classifier": classifier,
                 "transformation": dataset,
-                "alpha": diffusion_arguments["alpha"],
                 "guidance_type": diffusion_arguments["guidance"],
                 "guidance_freq": diffusion_arguments["guidance-freq"],
+                "alpha": diffusion_arguments["alpha"],
             }
         )
-    if pipeline_type == "text-to-image":
-        # TODO add latents and guidance_scale
-        args.update({"prompt": diffusion_arguments["prompt"]})
+    if pipeline_name == "latentguidance":
+        # get the index of the classes
+        classes_idx = [dataset.get_class_idx(class_name) for class_name in diffusion_arguments["classes"]]
+        # the prompt strategy is defined in the yaml, as well as all the classes needed
+        classes = f"{' and '.join(diffusion_arguments['classes'])}"
+        prompt = (
+            ""
+            if diffusion_arguments["prompt-strategy"] is None
+            else diffusion_arguments["prompt-strategy"].replace("<classes>", classes)
+        )
+        negative_prompt = (
+            "" if diffusion_arguments["negative-prompt"] is None else diffusion_arguments["negative-prompt"]
+        )
+        print(">> Prompt: ", prompt)
+        args.update(
+            {
+                "prompt": prompt,
+                "labels_idx": classes_idx,
+                "guidance_scale": diffusion_arguments["guidance-scale"],
+                "guidance_rescale": diffusion_arguments["guidance-rescale"],
+                "negative_prompt": negative_prompt,
+            }
+        )
     return args
 
 
@@ -82,19 +174,21 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
         diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
     )
     # get arguments for the pipeline
-    args = create_arguments(
-        diffusion_settings["pipeline"], diffusion_settings["type"], classifier, dataset, diffusion_settings["args"]
-    )
+    args = create_arguments(diffusion_settings["pipeline"], classifier, dataset, diffusion_settings["args"])
 
     # generate images in batches
     num_batches = math.ceil(num_images / batch_size)
     images = []
-    for _ in tqdm(range(num_batches), desc="Generating images"):
+    generator = torch.Generator().manual_seed(seed)
+    # generator = [torch.Generator(device="cuda").manual_seed(i) for i in range(4)] # to generate batches
+    for i in tqdm(range(num_batches), desc="Generating images"):
         batch_size_to_use = min(batch_size, num_images - len(images))
+        log_denoising_images = i == 0
         batch_images = pipe(
-            generator=torch.Generator().manual_seed(seed),
+            generator=generator,
             num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
             batch_size=batch_size_to_use,
+            log_denoising_images=log_denoising_images,
             **args,
         ).images
         images.extend(batch_images)
@@ -103,155 +197,236 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
     return images
 
 
-def main(configuration):
-    """Generate a sample image."""
-    diffusion_settings = configuration["diffusion"]
+def stress_test_classifier(
+    project_name, group_name, default_configs, dataset_config, classifier_config, diffusion_config, evaluation_config
+):
+    """Stress test a given classifier by generating images using a diffusion pipeline."""
+    # diffusion configurarions in wandb format
+    diffusion_config_txt = diffusion_config.copy()
+    diffusion_config_txt.update(diffusion_config_txt.pop("args", {}))
+    diffusion_config_txt.pop("pipeline", {})
 
     # init wandb
     wandb.init(
-        project=configuration["project"],
-        group=generate_group_name(configuration),
-        job_type=diffusion_settings["args"]["guidance"],
+        project=project_name,
+        group=group_name,
+        job_type=diffusion_config["args"]["guidance"],
         entity=os.getenv("ENTITY"),
         name=generate_run_id(),
         config={
-            "seed": configuration["seed"],
-            "diffusion": diffusion_settings,
-            "classsifier": configuration["classifier"]["name"],
-            "log_images": configuration["log"]["images"],
+            "num-images": evaluation_config["num-images"],
+            "classsifier": classifier_config["name"],
+            "diffusion": diffusion_config_txt,
+            "save-disk": default_configs["save-disk"],
+            # "certainty-threshold": evaluation_config["certainty-threshold"],
         },
     )
 
     # get classifier specifications
     classifier = None
-    if configuration["classifier"] is not None:
+    if classifier_config is not None:
         classifier = ClassifierFactory.model_from_lib(
-            configuration["classifier"]["lib"],
-            configuration["classifier"]["name"],
-            configuration["device"],
+            classifier_config["lib"],
+            classifier_config["name"],
+            default_configs["device"],
         )
 
-    # prepare the original dataset, for evaluation purposes, with the same number of samples as the generated ones
-    real_images, real_labels, class_labels = get_tst_dataset_streaming(
-        configuration["dataset"]["name"],
-        configuration["dataset"]["split"],
-        configuration["evaluation"]["num-images"],
-        configuration["dataset"]["subset"],
+    # get original dataset, to find the labels
+    real_images, real_labels, class_labels = get_tst_dataset(
+        dataset_config["name"],
+        dataset_config["split"],
+        max(evaluation_config["num-images"], dataset_config["num-images"]),
+        dataset_config["subset"],
     )
     real_dataset = DatasetFactory.dataset_from_lib(
-        configuration["classifier"]["lib"],
-        configuration["classifier"]["name"],
-        configuration["dataset"]["name"],
-        configuration["dataset"]["n_classes"],
+        classifier_config["lib"],
+        classifier_config["name"],
+        dataset_config["name"],
+        dataset_config["n_classes"],
         class_labels,
         real_images,
     )
-    real_dataset_res = prepare_dataset_results(
-        real_dataset,
-        classifier,
-        configuration["batch-size"],
-        configuration["device"],
-        real_labels,
-    )
-
+    real_dataset.set_labels(real_labels)
     torch.cuda.empty_cache()
 
     # prepare synthetic dataset object
     synth_dataset = DatasetFactory.dataset_from_lib(
-        configuration["classifier"]["lib"],
-        configuration["classifier"]["name"],
-        configuration["dataset"]["name"],
-        configuration["dataset"]["n_classes"],
+        classifier_config["lib"],
+        classifier_config["name"],
+        dataset_config["name"],
+        dataset_config["n_classes"],
         class_labels,
         None,
     )
 
     # generate images
     images = generate_images(
-        diffusion_settings,
+        diffusion_config,
         classifier,
         synth_dataset,
-        configuration["evaluation"]["num-images"],
-        configuration["batch-size"],
-        configuration["seed"],
-        configuration["device"],
+        evaluation_config["num-images"],
+        default_configs["batch-size"],
+        default_configs["seed"],
+        default_configs["device"],
     )
     synth_dataset.set_images(images)
 
     torch.cuda.empty_cache()
 
-    # save if needed
-    if configuration["log"]["images"]:
-        path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
-        os.makedirs(path, exist_ok=True)
-        with open(f"{path}/images.pkl", "wb") as f:
-            torch.save(images, f)
-            print("Images saved at", path)
+    # if we need to generate only 1 image, finish without evaluation
+    if evaluation_config["num-images"] == 1:
+        wandb.finish()
+        return 0
 
-    # prepare results, from synthetic dataset
+    # save images to disk, if needed
+    if default_configs["save-disk"]:
+        save_images_to_disk(images)
+
+    # compute reference dataset metrics that need the classifer
+    real_dataset_res = prepare_dataset_results(
+        real_dataset,
+        classifier,
+        diffusion_config["args"]["classes"],
+        default_configs["batch-size"],
+        default_configs["device"],
+        evaluation_config["mc-dropout"]["n-samples"],
+        evaluation_config["mc-dropout"]["threshold"],
+    )
+
+    # compute synthetic dataset metrics that need the classifer
     synth_dataset_res = prepare_dataset_results(
         synth_dataset,
         classifier,
-        configuration["batch-size"],
-        configuration["device"],
+        diffusion_config["args"]["classes"],
+        default_configs["batch-size"],
+        default_configs["device"],
+        evaluation_config["mc-dropout"]["n-samples"],
+        evaluation_config["mc-dropout"]["threshold"],
     )
 
-    # EVALUATION of the synthetic dataset
-
-    # from features
-
-    # quality metrics (Improved precision, Improved Recall, Density and Coverage)
-    metrics, features_umap = calculate_synthetic_metrics(
+    # compute synthetic metrics that need features and target (currently is only KDN)
+    synth_metrics, real_features, fake_features = calculate_feature_metrics(
         real_dataset,
         synth_dataset,
-        configuration["batch-size"],
-        configuration["device"],
+        diffusion_config["args"]["classes"],
+        default_configs["batch-size"],
+        default_configs["device"],
     )
-    wandb.log(metrics)
-    wandb.log({"umap": wandb.Image(features_umap)})
+    synth_dataset_res = pd.concat([synth_dataset_res, synth_metrics], axis=1)
+    valid_metrics = get_valid_metrics(dataset_config["n_classes"], synth_dataset_res.columns)
 
-    # FID score (calculated seperatly because it needs a different feature extractor)
-    fid_value = calculate_fid_metric(real_dataset, synth_dataset, configuration["batch-size"], configuration["device"])
-    wandb.log({"FID_score": fid_value})
+    # compute evaluation of synthetic dataset
+    eval_metrics = calculate_evaluation_metrics(real_features, fake_features, synth_dataset_res, valid_metrics)
 
-    # from probabilities
-
-    # distributions (boxplot): metric and classes
-    dist_metric, dist_probs = visualize_distributions(
-        real_dataset_res, synth_dataset_res, configuration["dataset"]["n_classes"]
+    # (fid needs to be calulated in a different way)
+    fid_value = calculate_fid_metric(
+        real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
     )
-    wandb.log({"dist_metrics": wandb.Image(dist_metric)})
+    eval_metrics["fid"] = fid_value
 
-    # visualize confusion matrix, only if the number of classes allows it
-    if synth_dataset.get_n_classes() <= 20:
-        # probabilities per label
-        wandb.log({"dist_labels": wandb.Image(dist_probs)})
+    # log metrics
+    wandb.log(eval_metrics)
 
-        viz_pairs, table_confusion = visualize_confusion(
-            real_dataset_res,
+    if default_configs["log-plots"]:
+        # umap visualization of features
+        features_umap = visualize_features_umap(real_features, fake_features)
+        wandb.log({"umap": wandb.Image(features_umap)})
+
+        # top n images with guidance metric
+        fig = visualize_top_synthetic_metric(
+            synth_dataset,
             synth_dataset_res,
-            configuration["dataset"]["n_classes"],
-            configuration["evaluation"]["certainty-threshold"],
+            sort_metric=diffusion_config["args"]["guidance"],
+            ascending=True,  # minimize
+            top_n=5,
+            display_rgb=default_configs["display-rgb"],
         )
-        wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
-        wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
+        wandb.log({f"{diffusion_config['args']['guidance']}_sample": wandb.Image(fig)})
+
+        # metric distribution (real vs fake) - boxplot
+        real_vs_synth = (
+            pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"])
+            .reset_index()
+            .rename(columns={"level_0": "keys"})
+            .drop(columns=["level_1"])
+        )
+
+        dist_metric = visualize_metrics_distributions(real_vs_synth, valid_metrics)
+        wandb.log({"dist_metrics": wandb.Image(dist_metric)})
+
+        # class distributions for top classes - boxplot
+        dist_labels = visualize_class_distributions(real_vs_synth, top_n=5)
+        wandb.log({"dist_labels": wandb.Image(dist_labels)})
+
+        # ambiguity matrix (only if low number of classes)
+        if dataset_config["n_classes"] <= 10:
+            viz_pairs, table_confusion = visualize_confusion(
+                real_dataset_res,
+                synth_dataset_res,
+                dataset_config["n_classes"],
+                evaluation_config["certainty-threshold"],
+            )
+            wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
+            wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
 
     # sample: grid of images and respective probs
-    sort_metric = diffusion_settings["args"]["guidance"] if diffusion_settings["pipeline"] == "guidance" else None
-    grid, results = visualize_sample_synthetic_images(
+    # entropy is default metric to sort, if we have no guidance
+    grid, _ = visualize_sample_synthetic_images(
         synth_dataset,
-        configuration["evaluation"]["viz-sample-size"],
-        classifier,
-        sort_metric,
-        configuration["evaluation"]["display-rgb"],
-        configuration["evaluation"]["certainty-threshold"],
-        configuration["device"],
+        synth_dataset_res,
+        evaluation_config["viz-sample-size"],
+        diffusion_config["args"]["guidance"] if diffusion_config["pipeline"] == "guidance" else "entropy",
+        default_configs["display-rgb"],
+        n_cols=5,
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
-    wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
+    # wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
+
+    if default_configs["save-disk"]:
+        save_results_to_disk(synth_dataset_res, "synthetic")
+        # save_results_to_disk(real_dataset_res, "real")
 
     # finish wandb
     wandb.finish()
+    return 0
+
+
+def main(configuration):
+    """Run the stress test per configuration."""
+    user_configs = configuration["user-args"]
+    dataset_config = configuration["dataset"]
+    classifier_config = configuration["classifier"]
+    evaluation_config = configuration["evaluation"]
+
+    guidance_metric = configuration["diffusion"]["args"]["guidance"]
+    alpha = configuration["diffusion"]["args"]["alpha"]
+    guidance_scale = configuration["diffusion"]["args"]["guidance-scale"]
+    diffusion_config = configuration["diffusion"]
+
+    # the group will be a timestamp that this main started, so that we can join multiple runs
+    group_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    i = 1
+    max_i = len(guidance_metric) * len(alpha) * len(guidance_scale)
+    for guidance_metric_value in guidance_metric:
+        for alpha_value in alpha:
+            for guidance_scale_value in guidance_scale:
+                diffusion_config["args"]["guidance"] = guidance_metric_value
+                diffusion_config["args"]["alpha"] = alpha_value
+                diffusion_config["args"]["guidance-scale"] = guidance_scale_value
+
+                # apply stress testing
+                print(f"Starting stress test {i}/{max_i}...")
+                stress_test_classifier(
+                    configuration["project"],
+                    group_name,
+                    user_configs,
+                    dataset_config,
+                    classifier_config,
+                    diffusion_config,
+                    evaluation_config,
+                )
+                i += 1
 
 
 if __name__ == "__main__":

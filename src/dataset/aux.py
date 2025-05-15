@@ -114,7 +114,7 @@ def get_tst_dataset_streaming(dataset_name, dataset_split, n_samples, subset_idx
     dataset = dataset.shuffle(seed=42, buffer_size=10000)
 
     # from iterable to dataset
-    if len(subset_idx) == 0:
+    if len(subset_idx) > 0:
         generator = partial(gen_balanced_samples, dataset, subset_idx, n_samples)
     else:
         dataset_sample = dataset.take(n_samples)

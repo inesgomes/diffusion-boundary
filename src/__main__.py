@@ -384,7 +384,7 @@ def stress_test_classifier(
 
     if default_configs["save-disk"]:
         save_results_to_disk(synth_dataset_res, "synthetic")
-        # save_results_to_disk(real_dataset_res, "real")
+        save_results_to_disk(real_dataset_res, "real")
 
     # finish wandb
     wandb.finish()

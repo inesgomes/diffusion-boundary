@@ -11,7 +11,7 @@ This framework needs:
 - **text-to-image latent diffusion model**
 - **subset of classes to audit**: should exist in the dataset
 
-Working on Python 3.11 and Pytorch y.
+Working on Python 3.11.
 
 ## Pre-conditions
 

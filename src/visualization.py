@@ -141,34 +141,37 @@ def visualize_metrics_distributions(real_synth_results, metrics):
     return fig_metric
 
 
-def visualize_class_distributions(real_synth_results, top_n):
-    """Plot distributions for real and synthetic datasets per each class."""
-    # top classes
-    top_5_classes = real_synth_results.groupby("pred").size().sort_values(ascending=False).head(top_n)
-    real_synth_results_filter = real_synth_results[real_synth_results["pred"].isin(top_5_classes.index)]
+def visualize_class_distributions(real_synth_results, classes, n_classes):
+    """Plot distributions for real and synthetic datasets per each selected class vs the sum of all classes."""
+    # sum all probabilities in one class
+    real_synth_results["other"] = real_synth_results.drop(columns=classes).iloc[:, 2:n_classes+2-len(classes)].sum(axis=1)
+    classes.append("other")
 
-    # probs per class
-    fig_classes, ax_c = plt.subplots(figsize=(8, 1.5 * top_n))
-
-    viz_results_melt = real_synth_results_filter.melt(
-        id_vars="keys", value_vars=top_5_classes.index, var_name="label", value_name="probability"
+    # melt classes + other
+    viz_results_melt = real_synth_results.melt(
+        id_vars="keys", value_vars=classes, var_name="label", value_name="probability"
     )
-    sns.boxplot(
-        data=viz_results_melt,
+
+    fig_classes, ax_c = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
+    sns.kdeplot(
+        data=viz_results_melt[viz_results_melt["keys"]== "Real"],
         x="probability",
-        y="label",
-        hue="keys",
-        ax=ax_c,
-        orient="h",
-        hue_order=["Real", "Synthetic"],
-        palette=["red", "blue"],
-        gap=0.1,
-        width=0.5,
-        fill=False,
-        fliersize=1,
+        hue="label",
+        ax=ax_c[0],
     )
-    ax_c.set_title("Class Probabilities Distribution | Real vs Synthetic")
+    ax_c[0].set_title("Real")
+    ax_c[0].set_xlim(-0.1, 1.1)
 
+    sns.kdeplot(
+        data=viz_results_melt[viz_results_melt["keys"]== "Synthetic"],
+        x="probability",
+        hue="label",
+        ax=ax_c[1],
+    )
+    ax_c[1].set_title("Synthetic")
+    ax_c[1].set_xlim(-0.1, 1.1)
+
+    fig_classes.suptitle("Class Probabilities Distribution")
     return fig_classes
 
 

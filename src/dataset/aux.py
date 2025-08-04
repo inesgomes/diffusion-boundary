@@ -47,6 +47,15 @@ TRANSFORMATIONS = {
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     ),
+    "google/vit-base-patch16-224_tensor": T.Compose(
+        [
+            T.Resize(224, interpolation=T.InterpolationMode.BILINEAR),
+            T.CenterCrop(int(224 * 0.875)),  # to comment
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),  # to comment
+            T.ConvertImageDtype(torch.float32),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    ),
     # normalized between [-1, 1] option
     "microsoft/resnet-50_norm": T.Compose(
         [

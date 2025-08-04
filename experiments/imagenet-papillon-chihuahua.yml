@@ -1,4 +1,4 @@
-project: 20250401_text_image_diffusion
+project: 20250801_text_image_diffusion
 
 user-args: 
   device: cuda:1
@@ -28,7 +28,6 @@ diffusion:
     classes:
       - Chihuahua
       - papillon
-      - orange
     guidance: kl-div-target
     # alpha
     alpha:

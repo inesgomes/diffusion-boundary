@@ -26,9 +26,10 @@ diffusion:
     num-inference-steps: 40
     prompt-strategy: <classes>
     classes: 
-      - leopard, Panthera pardus
-      - jaguar, panther, Panthera onca, Felis onca
-      - cheetah, chetah, Acinonyx jubatus
+      - sea snake 
+      - water snake
+      - hognose snake, puff adder, sand viper
+      - king snake, kingsnake
     guidance: kl-div-target
     # alpha
     alpha:

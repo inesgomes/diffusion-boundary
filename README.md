@@ -45,6 +45,6 @@ HF_HUB_OFFLINE=True
 
 ## Run
 
-`pyhton -m src --config experiments/<NAME>`
+`python -m src --config experiments/<NAME>`
 
 Experiments are explained in `experiments/README.md`

@@ -25,10 +25,9 @@ diffusion:
   args:
     num-inference-steps: 40
     prompt-strategy: <classes>
-    classes: 
-      - leopard, Panthera pardus
-      - jaguar, panther, Panthera onca, Felis onca
-      - cheetah, chetah, Acinonyx jubatus
+    classes:
+      - orange
+      - lemon
     guidance: kl-div-target
     # alpha
     alpha:

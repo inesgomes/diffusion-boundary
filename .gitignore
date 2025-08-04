@@ -167,6 +167,8 @@ cython_debug/
 
 # wandb
 /wandb
+/files
+/experiments/tst
 
 # others
 README-INES.md

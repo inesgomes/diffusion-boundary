@@ -17,7 +17,7 @@ from src.classifier.metrics import compute_metric
 
 
 class LatentClassifierGuidance(DiffusionPipeline):
-    """Dummy pipeline to test diffusion models with a classifier."""
+    """Pipeline to test diffusion models with a classifier."""
 
     def __init__(self, text_encoder, vae, tokenizer, clip_model, feature_extractor, unet, scheduler):
         """Calculate the gradient of the selected metric with respect to the images, for latent diffusion models."""
@@ -57,9 +57,14 @@ class LatentClassifierGuidance(DiffusionPipeline):
         latent_scaled = self.scheduler.scale_model_input(latents, t)
         noise_prediction = self.unet(latent_scaled, t, encoder_hidden_states=prompt_embd).sample
 
-        # calculate prediction for the original sample
+        # calculate prediction for the original sample (k-LMS)
         sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
         latents_0 = latents - sigma_t * noise_prediction
+
+        # TODO calculate prediction for the original sample (DDIM)
+        #alpha_prod_t = self.scheduler.alphas_cumprod[t]
+        #beta_prod_t = 1 - alpha_prod_t
+        #latents_0 = (latents - beta_prod_t ** (0.5) * noise_prediction) / alpha_prod_t ** (0.5)
 
         # decode the latents to images and transform to the classifier format
         images = self.decode_latents(latents_0)

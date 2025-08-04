@@ -14,6 +14,7 @@ from diffusers import (
     DiffusionPipeline,
     LMSDiscreteScheduler,
     PNDMPipeline,
+    DDIMScheduler,
 )
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -112,6 +113,7 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
             cache_dir=os.getenv("HF_MODELS_CACHE"),
         ).to(device)
         # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
+        # TODO change from k-LMS to DDIM
         pipe.scheduler = LMSDiscreteScheduler.from_config(
             pipe.scheduler.config,
             rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
@@ -119,6 +121,12 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
             prediction_type="epsilon",
             use_karras_sigmas=True,  # make sure we are using k-lms version
         )
+        #pipe.scheduler = DDIMScheduler.from_config(
+        #    pipe.scheduler.config,
+        #    rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
+        #    timestep_spacing="trailing",  # both together creates error
+        #    prediction_type="epsilon",
+        #)
         pipe.enable_attention_slicing()
         return pipe
 
@@ -343,7 +351,7 @@ def stress_test_classifier(
         )
         wandb.log({f"{diffusion_config['args']['guidance']}_sample": wandb.Image(fig)})
 
-        # metric distribution (real vs fake) - boxplot
+        # melt real and synthetic values
         real_vs_synth = (
             pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"])
             .reset_index()
@@ -351,11 +359,12 @@ def stress_test_classifier(
             .drop(columns=["level_1"])
         )
 
+        # metric distribution (real vs fake) - boxplot
         dist_metric = visualize_metrics_distributions(real_vs_synth, valid_metrics)
         wandb.log({"dist_metrics": wandb.Image(dist_metric)})
 
-        # class distributions for top classes - boxplot
-        dist_labels = visualize_class_distributions(real_vs_synth, top_n=5)
+        # class distributions for top classes - kde plot
+        dist_labels = visualize_class_distributions(real_vs_synth, classes=diffusion_config["args"]["classes"], n_classes=dataset_config["n_classes"])
         wandb.log({"dist_labels": wandb.Image(dist_labels)})
 
         # ambiguity matrix (only if low number of classes)

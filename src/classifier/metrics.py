@@ -18,6 +18,7 @@ MULTICLASS_METRICS = [
     "second-rank",
     "evidential-ambiguity",
     "kl-div-target",
+    "gaussian-target"
     # "margin",
     # "least-confidence",
 ]
@@ -148,6 +149,25 @@ def compute_gaussian_loss(probs, logits):
     return F.gaussian_nll_loss(logits, target, var, reduction="none")
 
 
+def compute_ideal_gaussian_loss(probs, labels_idx):
+    """Calculate the gaussian loss when comparing to an ideal value (that is our target)
+
+    Goal: minimize
+    """
+    var = torch.full_like(input=probs, fill_value=0.1) # consider receiving this value as an argument
+    target = torch.zeros(*probs.shape, device=probs.device)
+    for idx in labels_idx:
+        target[:, idx] = 1 / len(labels_idx)
+    target = torch.clip(target, min=1e-10)
+
+    # ideal loss: target vs target
+    ideal_loss = F.gaussian_nll_loss(target, target, var=var, reduction="none")
+    # current loss: probs vs target
+    loss = F.gaussian_nll_loss(probs, target, var=var, reduction="none")
+    # my loss
+    return -(loss - ideal_loss).sum(dim=1)
+
+
 def compute_mc_dropout_mean(probs_dropout):
     """Calculate the mean of the variance of the MC dropout probabilities.
 
@@ -181,6 +201,7 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
     # metrics that need the target classes
     target_functions = {
         "kl-div-target": compute_probs_kl_divergence,
+        "gaussian-target": compute_ideal_gaussian_loss
     }
     # metrics that require multiple forward passes
     uncertainty_functions = {

@@ -61,7 +61,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
         latents_0 = latents - sigma_t * noise_prediction
 
-        # TODO calculate prediction for the original sample (DDIM)
+        # calculate prediction for the original sample (DDIM)
         #alpha_prod_t = self.scheduler.alphas_cumprod[t]
         #beta_prod_t = 1 - alpha_prod_t
         #latents_0 = (latents - beta_prod_t ** (0.5) * noise_prediction) / alpha_prod_t ** (0.5)
@@ -69,7 +69,8 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # decode the latents to images and transform to the classifier format
         images = self.decode_latents(latents_0)
 
-        # TODO: save these images here
+        # save images mid denoising
+        wandb.log({"mid_denoise_image": wandb.Image(images), "_diffusion_step": t})
 
         # classifier transformation
         images_t = transformation.transform_images(images)

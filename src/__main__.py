@@ -112,8 +112,7 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
             variant="fp16",
             cache_dir=os.getenv("HF_MODELS_CACHE"),
         ).to(device)
-        # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
-        # TODO change from k-LMS to DDIM
+        # k-LMS scheduler
         pipe.scheduler = LMSDiscreteScheduler.from_config(
             pipe.scheduler.config,
             rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
@@ -121,6 +120,8 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
             prediction_type="epsilon",
             use_karras_sigmas=True,  # make sure we are using k-lms version
         )
+        # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
+        # DDIM scheduler
         #pipe.scheduler = DDIMScheduler.from_config(
         #    pipe.scheduler.config,
         #    rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
@@ -313,7 +314,7 @@ def stress_test_classifier(
     )
 
     # compute synthetic metrics that need features and target (currently is only KDN)
-    synth_metrics, real_features, fake_features = calculate_feature_metrics(
+    synth_metrics, real_features, real_labels, fake_features = calculate_feature_metrics(
         real_dataset,
         synth_dataset,
         diffusion_config["args"]["classes"],
@@ -337,7 +338,7 @@ def stress_test_classifier(
 
     if default_configs["log-plots"]:
         # umap visualization of features
-        features_umap = visualize_features_umap(real_features, fake_features)
+        features_umap = visualize_features_umap(real_features, real_labels, fake_features, synth_dataset_res[diffusion_config["args"]["guidance"]])
         wandb.log({"umap": wandb.Image(features_umap)})
 
         # top n images with guidance metric

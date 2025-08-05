@@ -232,15 +232,42 @@ def visualize_confusion(real_results, synth_results, n_classes, threshold):
     return fig, combined_df
 
 
-def visualize_features_umap(real_features, synth_features):
+def visualize_features_umap(real_features, real_labels, synth_features, guidance_metric):
     """2D UMAP visualization of the features. Returns the figure."""
-    umap = UMAP(n_components=2, random_state=10, n_jobs=1)
+    umap = UMAP(n_components=2, random_state=10)
     real_feats_2d = umap.fit_transform(real_features)
     fake_feats_2d = umap.transform(synth_features)
 
-    fig = plt.figure(figsize=(10, 10))
-    plt.scatter(real_feats_2d[:, 0], real_feats_2d[:, 1], s=3, label=f"Real (n={real_feats_2d.shape[0]})", color="red")
-    plt.scatter(fake_feats_2d[:, 0], fake_feats_2d[:, 1], s=3, label=f"Fake (n={fake_feats_2d.shape[0]})", color="blue")
+    marker_styles = ['o', 's', '^', 'D', 'v', 'P', '*', 'X', 'H', '+']
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    unique_labels = np.unique(real_labels)
+    for i, label in enumerate(unique_labels):
+        marker = marker_styles[i % len(marker_styles)]
+        indices = real_labels == label
+        ax.scatter(
+            real_feats_2d[indices, 0],
+            real_feats_2d[indices, 1],
+            marker=marker,
+            label=label,
+            edgecolors='black',  # optional for contrast
+            facecolors='none'    # optional for clarity
+        )
+
+    cmap = sns.cubehelix_palette(as_cmap=True)
+    points = ax.scatter(
+        fake_feats_2d[:, 0],
+        fake_feats_2d[:, 1],
+        c=guidance_metric,
+        label="synthetic",
+        marker='.',
+        cmap=cmap
+    )
+    fig.colorbar(points)
+
+    #plt.scatter(real_feats_2d[:, 0], real_feats_2d[:, 1], s=3, label=f"Real (n={real_feats_2d.shape[0]})", color="red")
+    #plt.scatter(fake_feats_2d[:, 0], fake_feats_2d[:, 1], s=3, label=f"Fake (n={fake_feats_2d.shape[0]})", color="blue")
     plt.title("UMAP Features Visualization | Real vs Synthetic")
     plt.legend()
     return fig

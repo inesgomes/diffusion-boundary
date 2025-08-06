@@ -5,6 +5,7 @@ import os
 import timm
 import torch
 from torch.nn import functional as F
+import torch.nn as nn
 from transformers import AutoModelForImageClassification
 
 from .base import BaseClassifier
@@ -49,6 +50,21 @@ class PretrainedOther(BaseClassifier):
         probs = F.softmax(logits, dim=1)
         return probs, logits
 
+    def soft_corrupt_classifier(self, std=0.05):
+        with torch.no_grad():
+            classifier = self.model.classifier
+            if isinstance(classifier, nn.Sequential):
+                for layer in classifier:
+                    if isinstance(layer, nn.Linear):
+                        layer.weight += torch.randn_like(layer.weight) * std
+                        layer.bias += torch.randn_like(layer.bias) * std
+                        break
+            elif isinstance(classifier, nn.Linear):
+                classifier.weight += torch.randn_like(classifier.weight) * std
+                classifier.bias += torch.randn_like(classifier.bias) * std
+            else:
+                raise TypeError(f"Unsupported classifier type: {type(classifier)}")
+
 
 class PretrainedTransformer(BaseClassifier):
     """Class for pre-trained models from the transformers library."""
@@ -63,3 +79,18 @@ class PretrainedTransformer(BaseClassifier):
         logits = self.model(tensor_images).logits
         probs = F.softmax(logits, dim=1)
         return probs, logits
+
+    def soft_corrupt_classifier(self, std=0.05):
+        with torch.no_grad():
+            classifier = self.model.classifier
+            if isinstance(classifier, nn.Sequential):
+                for layer in classifier:
+                    if isinstance(layer, nn.Linear):
+                        layer.weight += torch.randn_like(layer.weight) * std
+                        layer.bias += torch.randn_like(layer.bias) * std
+                        break
+            elif isinstance(classifier, nn.Linear):
+                classifier.weight += torch.randn_like(classifier.weight) * std
+                classifier.bias += torch.randn_like(classifier.bias) * std
+            else:
+                raise TypeError(f"Unsupported classifier type: {type(classifier)}")

@@ -215,6 +215,8 @@ def stress_test_classifier(
     diffusion_config_txt.update(diffusion_config_txt.pop("args", {}))
     diffusion_config_txt.pop("pipeline", {})
 
+    classifier_name = classifier_config["name"] + "_corrupt" if classifier_config["corrupt"]>0 else classifier_config["name"]
+
     # init wandb
     wandb.init(
         project=project_name,
@@ -224,7 +226,7 @@ def stress_test_classifier(
         name=generate_run_id(),
         config={
             "num-images": evaluation_config["num-images"],
-            "classsifier": classifier_config["name"],
+            "classsifier": classifier_name,
             "diffusion": diffusion_config_txt,
             "save-disk": default_configs["save-disk"],
             # "certainty-threshold": evaluation_config["certainty-threshold"],
@@ -239,6 +241,8 @@ def stress_test_classifier(
             classifier_config["name"],
             default_configs["device"],
         )
+        if classifier_config["corrupt"] > 0:
+            classifier.soft_corrupt_classifier(classifier_config["corrupt"])
 
     # get original dataset, to find the labels
     real_images, real_labels, class_labels = get_tst_dataset(

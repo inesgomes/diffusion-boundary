@@ -262,6 +262,7 @@ def visualize_features_umap(real_features, real_labels, synth_features, guidance
         c=guidance_metric,
         label="synthetic",
         marker='.',
+        alpha=0.8,
         cmap=cmap
     )
     fig.colorbar(points)

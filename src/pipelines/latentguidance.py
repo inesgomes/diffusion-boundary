@@ -70,7 +70,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         images = self.decode_latents(latents_0)
 
         # save images mid denoising
-        wandb.log({"mid_denoise_image": wandb.Image(images), "_diffusion_step": t})
+        #wandb.log({"mid_denoise_image": wandb.Image(images), "_diffusion_step": t})
 
         # classifier transformation
         images_t = transformation.transform_images(images)

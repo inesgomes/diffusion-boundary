@@ -144,12 +144,13 @@ def visualize_metrics_distributions(real_synth_results, metrics):
 def visualize_class_distributions(real_synth_results, classes, n_classes):
     """Plot distributions for real and synthetic datasets per each selected class vs the sum of all classes."""
     # sum all probabilities in one class
-    real_synth_results["other"] = real_synth_results.drop(columns=classes).iloc[:, 2:n_classes+2-len(classes)].sum(axis=1)
-    classes.append("other")
+    new_classes = classes[:]
+    real_synth_results["other"] = real_synth_results.drop(columns=new_classes).iloc[:, 2:n_classes+2-len(new_classes)].sum(axis=1)
+    new_classes.append("other")
 
     # melt classes + other
     viz_results_melt = real_synth_results.melt(
-        id_vars="keys", value_vars=classes, var_name="label", value_name="probability"
+        id_vars="keys", value_vars=new_classes, var_name="label", value_name="probability"
     )
 
     fig_classes, ax_c = plt.subplots(1, 2, figsize=(12, 4), sharey=True)

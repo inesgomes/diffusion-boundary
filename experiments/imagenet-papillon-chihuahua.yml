@@ -3,7 +3,7 @@
 project: 20250801_text_image_diffusion
 
 user-args: 
-  device: cuda:1
+  device: cuda
   seed: 28
   batch-size: 1
   save-disk: False
@@ -17,7 +17,7 @@ dataset:
   num-images: 1000
 
 classifier:
-  name: google/vit-base-patch16-22
+  name: google/vit-base-patch16-224
   lib: transformers
   corrupt: 0
 
@@ -34,19 +34,19 @@ diffusion:
     guidance: kl-div-target
     # alpha
     alpha:
-      - 0
+      # - 0
       - 0.05
       - 0.1
       - 0.15
       - 0.2
       - 0.5
-      - 1
+      # - 1
     guidance-freq: 5
     # beta
     guidance-scale:
-      - 3
-      - 6
-      - 9
+      - 3 # missing alpha=1
+      - 6 # missing alpha=0
+      - 9 # missing alpha=0,1
     guidance-rescale: 0.7
     negative-prompt: blurry, deformed, low quality, watermark, text, extra limbs, ugly # if not specified, it is empty 
 

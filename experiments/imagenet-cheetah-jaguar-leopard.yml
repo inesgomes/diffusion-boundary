@@ -1,7 +1,7 @@
 project: 20250801_text_image_diffusion
 
 user-args: 
-  device: cuda:1
+  device: cuda
   seed: 28
   batch-size: 1
   save-disk: False
@@ -23,7 +23,7 @@ diffusion:
   name: CompVis/stable-diffusion-v1-4
   type: sd
   args:
-    num-inference-steps: 40
+    num-inference-steps: 30
     prompt-strategy: <classes>
     classes: 
       - leopard, Panthera pardus
@@ -49,6 +49,6 @@ diffusion:
     negative-prompt: blurry, deformed, low quality, watermark, text, extra limbs, ugly # if not specified, it is empty 
 
 evaluation:
-  num-images: 2500
+  num-images: 1000
   viz-sample-size: 10
   certainty-threshold: 0.8

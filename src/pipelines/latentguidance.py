@@ -83,7 +83,17 @@ class LatentClassifierGuidance(DiffusionPipeline):
         grad = torch.autograd.grad(metric, latents)[0]
 
         # norm gradients to Linf norm (according to https://arxiv.org/pdf/2203.17260)
-        normalized_grad = grad / (torch.max(torch.abs(grad)).detach() + 1e-10)
+        # beaware of exploding gradients
+        if torch.isfinite(grad).all():
+            norm = torch.max(torch.abs(grad)).detach()
+            if norm > 0:
+                normalized_grad = grad / (norm + 1e-10)
+            else:
+                print("Warning: no normalization")
+                normalized_grad = grad  # return as-is if all zeros
+        else:
+            print("Warning: grad contains NaN or Inf, skipping normalization.")
+            normalized_grad = torch.zeros_like(grad)  
 
         return metric, normalized_grad
 

@@ -88,7 +88,10 @@ def visualize_sample_synthetic_images(
 ):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
     # order dataset by metric and select top sample
-    results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
+    # results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
+
+    # get only first 10
+    results = synth_dataset_res.head(sample_size)
 
     # check how many elements have less than half of the max value for the metric (minimize version)
     mask = synth_dataset_res[sort_metric] <= synth_dataset_res[sort_metric].max() / 2

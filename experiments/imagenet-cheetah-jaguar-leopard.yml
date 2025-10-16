@@ -24,7 +24,7 @@ diffusion:
   type: sd
   args:
     num-inference-steps: 30
-    prompt-strategy: <classes>
+    prompt-strategy: and
     classes: 
       - leopard, Panthera pardus
       - jaguar, panther, Panthera onca, Felis onca

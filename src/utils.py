@@ -44,6 +44,8 @@ def load_configurations(config_path):
     else:
         if config["classifier"]["lib"] == "local":
             config["classifier"]["name"] = os.getenv("MODELS_DIR") + "/" + config["classifier"]["name"]
+        if "corrupt" not in config["classifier"]:
+            config["classifier"]["corrupt"] = 0
 
     # check if guidance exists
     if "pipeline" not in config["diffusion"]:
@@ -60,6 +62,10 @@ def load_configurations(config_path):
         config["evaluation"]["mc-dropout"] = {}
         config["evaluation"]["mc-dropout"]["n-samples"] = None
         config["evaluation"]["mc-dropout"]["threshold"] = None
+
+    # default value
+    if "certainty-threshold" not in config["evaluation"]:
+        config["evaluation"]["certainty-threshold"] = 0.8
 
     # transform certain arguments to list
     if not isinstance(config["diffusion"]["args"]["guidance"], list):

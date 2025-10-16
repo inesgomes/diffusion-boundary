@@ -17,12 +17,19 @@ def format_label(row, n_classes: int, metrics: list):
 
     Always shows top 3 classes and their respective probability value; KDN and their respective neighbors; It is also possible to enrich with other metrics if provided.
     """
+    # if label name is longer than 20 characters, truncate it
     top_labels = row["sorted_labels"][:n_classes]
-    probs_legend = "\n".join([f"{label_name}: {row[label_name]:.2f}" for label_name in top_labels])
-    kdn_legend = f"KDN: {row['kdn']:.2f}\n nbr: {row['kdn_nbr']}"
+    probs_legend = "\n".join(
+        [
+            f"{label_name if len(label_name) <= 20 else label_name[:20] + '...'}: {row[label_name]:.2f}"
+            for label_name in top_labels
+        ]
+    )
+    # kdn_legend = f"KDN: {row['kdn']:.2f}\n nbr: {row['kdn_nbr']}"
     metrics_legend = "\n".join([f"{m}: {row[m]:.2f}" for m in metrics])
 
-    return kdn_legend + "\n" + metrics_legend + "\n" + probs_legend
+    # return kdn_legend + "\n" + metrics_legend + "\n" + probs_legend
+    return metrics_legend + "\n" + probs_legend
 
 
 def visualize_2D_probability_grid(images, probabilities, n_cols):
@@ -104,7 +111,7 @@ def visualize_sample_synthetic_images(
         else:
             axes[i].imshow(img)
         # calculate label
-        label = format_label(row, 3, [sort_metric])
+        label = format_label(row, 5, [sort_metric])
         axes[i].set_title(label, fontsize=8)
         axes[i].axis("off")
 
@@ -145,7 +152,9 @@ def visualize_class_distributions(real_synth_results, classes, n_classes):
     """Plot distributions for real and synthetic datasets per each selected class vs the sum of all classes."""
     # sum all probabilities in one class
     new_classes = classes[:]
-    real_synth_results["other"] = real_synth_results.drop(columns=new_classes).iloc[:, 2:n_classes+2-len(new_classes)].sum(axis=1)
+    real_synth_results["other"] = (
+        real_synth_results.drop(columns=new_classes).iloc[:, 2 : n_classes + 2 - len(new_classes)].sum(axis=1)
+    )
     new_classes.append("other")
 
     # melt classes + other
@@ -155,7 +164,7 @@ def visualize_class_distributions(real_synth_results, classes, n_classes):
 
     fig_classes, ax_c = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
     sns.kdeplot(
-        data=viz_results_melt[viz_results_melt["keys"]== "Real"],
+        data=viz_results_melt[viz_results_melt["keys"] == "Real"],
         x="probability",
         hue="label",
         ax=ax_c[0],
@@ -164,7 +173,7 @@ def visualize_class_distributions(real_synth_results, classes, n_classes):
     ax_c[0].set_xlim(-0.1, 1.1)
 
     sns.kdeplot(
-        data=viz_results_melt[viz_results_melt["keys"]== "Synthetic"],
+        data=viz_results_melt[viz_results_melt["keys"] == "Synthetic"],
         x="probability",
         hue="label",
         ax=ax_c[1],
@@ -239,7 +248,7 @@ def visualize_features_umap(real_features, real_labels, synth_features, guidance
     real_feats_2d = umap.fit_transform(real_features)
     fake_feats_2d = umap.transform(synth_features)
 
-    marker_styles = ['o', 's', '^', 'D', 'v', 'P', '*', 'X', 'H', '+']
+    marker_styles = ["o", "s", "^", "D", "v", "P", "*", "X", "H", "+"]
 
     fig, ax = plt.subplots(figsize=(10, 10))
 
@@ -252,24 +261,18 @@ def visualize_features_umap(real_features, real_labels, synth_features, guidance
             real_feats_2d[indices, 1],
             marker=marker,
             label=label,
-            edgecolors='black',  # optional for contrast
-            facecolors='none'    # optional for clarity
+            edgecolors="black",  # optional for contrast
+            facecolors="none",  # optional for clarity
         )
 
     cmap = sns.cubehelix_palette(as_cmap=True)
     points = ax.scatter(
-        fake_feats_2d[:, 0],
-        fake_feats_2d[:, 1],
-        c=guidance_metric,
-        label="synthetic",
-        marker='.',
-        alpha=0.8,
-        cmap=cmap
+        fake_feats_2d[:, 0], fake_feats_2d[:, 1], c=guidance_metric, label="synthetic", marker=".", alpha=0.8, cmap=cmap
     )
     fig.colorbar(points)
 
-    #plt.scatter(real_feats_2d[:, 0], real_feats_2d[:, 1], s=3, label=f"Real (n={real_feats_2d.shape[0]})", color="red")
-    #plt.scatter(fake_feats_2d[:, 0], fake_feats_2d[:, 1], s=3, label=f"Fake (n={fake_feats_2d.shape[0]})", color="blue")
+    # plt.scatter(real_feats_2d[:, 0], real_feats_2d[:, 1], s=3, label=f"Real (n={real_feats_2d.shape[0]})", color="red")
+    # plt.scatter(fake_feats_2d[:, 0], fake_feats_2d[:, 1], s=3, label=f"Fake (n={fake_feats_2d.shape[0]})", color="blue")
     plt.title("UMAP Features Visualization | Real vs Synthetic")
     plt.legend()
     return fig

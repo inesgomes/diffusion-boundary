@@ -19,7 +19,6 @@ dataset:
 classifier:
   name: google/vit-base-patch16-224
   lib: transformers
-  corrupt: 0
 
 diffusion:
   pipeline: latentguidance
@@ -27,7 +26,7 @@ diffusion:
   type: sd
   args:
     num-inference-steps: 30
-    prompt-strategy: <classes>
+    prompt-strategy: and
     classes:
       - Chihuahua
       - papillon

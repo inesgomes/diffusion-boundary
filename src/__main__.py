@@ -14,7 +14,6 @@ from diffusers import (
     DiffusionPipeline,
     LMSDiscreteScheduler,
     PNDMPipeline,
-    DDIMScheduler,
 )
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -122,12 +121,12 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
         )
         # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
         # DDIM scheduler
-        #pipe.scheduler = DDIMScheduler.from_config(
+        # pipe.scheduler = DDIMScheduler.from_config(
         #    pipe.scheduler.config,
         #    rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
         #    timestep_spacing="trailing",  # both together creates error
         #    prediction_type="epsilon",
-        #)
+        # )
         pipe.enable_attention_slicing()
         return pipe
 
@@ -135,6 +134,25 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
     return pipeline_class.from_pretrained(
         model, custom_pipeline=custom_pipeline, cache_dir=os.getenv("HF_MODELS_CACHE")
     ).to(device)
+
+
+def _build_prompt_from_strategy(diffusion_classes, strategy):
+    """Return prompt according to the strategy and classes provided.
+
+    Strategies:
+    - "and"  -> 'class1 and class2 and ...'
+    - "one<n>" -> 'class n'
+    - anything else -> ''
+    """
+    # if strategy is "and", join all classes with " and "
+    if strategy == "and":
+        return " and ".join(diffusion_classes)
+    # if strategy starts with "one" and has a number after
+    if strategy.startswith("one") and len(strategy) > 3 and strategy[3] == "<" and strategy[-1] == ">":
+        n = int(strategy[4:-1])
+        if 1 <= n <= len(diffusion_classes):
+            return diffusion_classes[n - 1]
+    return ""
 
 
 def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
@@ -154,12 +172,7 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
         # get the index of the classes
         classes_idx = [dataset.get_class_idx(class_name) for class_name in diffusion_arguments["classes"]]
         # the prompt strategy is defined in the yaml, as well as all the classes needed
-        classes = f"{' and '.join(diffusion_arguments['classes'])}"
-        prompt = (
-            ""
-            if diffusion_arguments["prompt-strategy"] is None
-            else diffusion_arguments["prompt-strategy"].replace("<classes>", classes)
-        )
+        prompt = _build_prompt_from_strategy(diffusion_arguments["classes"], diffusion_arguments["prompt-strategy"])
         negative_prompt = (
             "" if diffusion_arguments["negative-prompt"] is None else diffusion_arguments["negative-prompt"]
         )
@@ -215,8 +228,6 @@ def stress_test_classifier(
     diffusion_config_txt.update(diffusion_config_txt.pop("args", {}))
     diffusion_config_txt.pop("pipeline", {})
 
-    classifier_name = classifier_config["name"] + "_corrupt" if classifier_config["corrupt"]>0 else classifier_config["name"]
-
     # init wandb
     wandb.init(
         project=project_name,
@@ -226,7 +237,11 @@ def stress_test_classifier(
         name=generate_run_id(),
         config={
             "num-images": evaluation_config["num-images"],
-            "classsifier": classifier_name,
+            "classsifier": (
+                classifier_config["name"] + "_corrupt"
+                if classifier_config["corrupt"] > 0
+                else classifier_config["name"]
+            ),
             "diffusion": diffusion_config_txt,
             "save-disk": default_configs["save-disk"],
             # "certainty-threshold": evaluation_config["certainty-threshold"],
@@ -332,17 +347,18 @@ def stress_test_classifier(
     eval_metrics = calculate_evaluation_metrics(real_features, fake_features, synth_dataset_res, valid_metrics)
 
     # (fid needs to be calulated in a different way)
-    fid_value = calculate_fid_metric(
+    eval_metrics["fid"] = calculate_fid_metric(
         real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
     )
-    eval_metrics["fid"] = fid_value
 
     # log metrics
     wandb.log(eval_metrics)
 
     if default_configs["log-plots"]:
         # umap visualization of features
-        features_umap = visualize_features_umap(real_features, real_labels, fake_features, synth_dataset_res[diffusion_config["args"]["guidance"]])
+        features_umap = visualize_features_umap(
+            real_features, real_labels, fake_features, synth_dataset_res[diffusion_config["args"]["guidance"]]
+        )
         wandb.log({"umap": wandb.Image(features_umap)})
 
         # top n images with guidance metric
@@ -369,7 +385,9 @@ def stress_test_classifier(
         wandb.log({"dist_metrics": wandb.Image(dist_metric)})
 
         # class distributions for top classes - kde plot
-        dist_labels = visualize_class_distributions(real_vs_synth, classes=diffusion_config["args"]["classes"], n_classes=dataset_config["n_classes"])
+        dist_labels = visualize_class_distributions(
+            real_vs_synth, classes=diffusion_config["args"]["classes"], n_classes=dataset_config["n_classes"]
+        )
         wandb.log({"dist_labels": wandb.Image(dist_labels)})
 
         # ambiguity matrix (only if low number of classes)
@@ -389,7 +407,7 @@ def stress_test_classifier(
         synth_dataset,
         synth_dataset_res,
         evaluation_config["viz-sample-size"],
-        diffusion_config["args"]["guidance"] if diffusion_config["pipeline"] == "guidance" else "entropy",
+        diffusion_config["args"]["guidance"],  # if diffusion_config["pipeline"] == "guidance" else "entropy",
         default_configs["display-rgb"],
         n_cols=5,
     )

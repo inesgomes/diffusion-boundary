@@ -142,17 +142,20 @@ def _build_prompt_from_strategy(diffusion_classes, strategy):
     Strategies:
     - "and"  -> 'class1 and class2 and ...'
     - "one<n>" -> 'class n'
+    - "single" -> 'class1'; 'class2'; ...
     - anything else -> ''
     """
     # if strategy is "and", join all classes with " and "
     if strategy == "and":
-        return " and ".join(diffusion_classes)
+        return [" and ".join(diffusion_classes)]
     # if strategy starts with "one" and has a number after
     if strategy.startswith("one") and len(strategy) > 3 and strategy[3] == "<" and strategy[-1] == ">":
         n = int(strategy[4:-1])
         if 1 <= n <= len(diffusion_classes):
-            return diffusion_classes[n - 1]
-    return ""
+            return [diffusion_classes[n - 1]]
+    if strategy == "single":
+        return diffusion_classes
+    return [""]
 
 
 def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
@@ -198,18 +201,35 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
     # get arguments for the pipeline
     args = create_arguments(diffusion_settings["pipeline"], classifier, dataset, diffusion_settings["args"])
 
+    # prepare prompts for all images
+    if len(args["prompt"]) == 1:
+        prompts_for_images = [args["prompt"][0]] * num_images
+    else:
+        # Evenly distribute prompts
+        num_prompts = len(args["prompt"])
+        prompts_for_images = [args["prompt"][i % num_prompts] for i in range(num_images)]
+
     # generate images in batches
     num_batches = math.ceil(num_images / batch_size)
     images = []
     generator = torch.Generator().manual_seed(seed)
+
     # generator = [torch.Generator(device="cuda").manual_seed(i) for i in range(4)] # to generate batches
     for i in tqdm(range(num_batches), desc="Generating images"):
-        batch_size_to_use = min(batch_size, num_images - len(images))
+        # batch_size_to_use = min(batch_size, num_images - len(images))
+
+        start_idx = i * batch_size
+        end_idx = min((i + 1) * batch_size, num_images)
+        batch_prompts = prompts_for_images[start_idx:end_idx]
+
+        args["prompt"] = batch_prompts
+
         log_denoising_images = i == 0
+
         batch_images = pipe(
             generator=generator,
             num_inference_steps=diffusion_settings["args"]["num-inference-steps"],
-            batch_size=batch_size_to_use,
+            batch_size=len(batch_prompts),
             log_denoising_images=log_denoising_images,
             **args,
         ).images

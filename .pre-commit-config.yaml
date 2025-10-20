@@ -7,8 +7,8 @@ repos:
     hooks:
     -   id: export-environment
         name: Export Conda Environment
-        entry: bash -c 'mamba env export --no-builds | grep -v "^prefix:" > environment.yml
-          && git add environment.yml'
+        entry: bash -c 'mamba env export --no-builds | grep -v "^prefix:" >
+          environment.yml && git add environment.yml'
         language: system
         always_run: true
         pass_filenames: false
@@ -31,7 +31,7 @@ repos:
     -   id: pre-commit-update
 
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.0
+    rev: v0.14.1
     hooks:
     -   id: ruff
         args: ['--fix', '--line-length=120', '--exit-non-zero-on-fix', '--show-fixes']
@@ -43,7 +43,7 @@ repos:
         args: ['--line-length=120']
 
 -   repo: https://github.com/pycqa/pylint
-    rev: v4.0.1
+    rev: v4.0.2
     hooks:
     -   id: pylint
         args: ['-d duplicate-code', '--disable=W0511, C0103, C0411, line-too-long,

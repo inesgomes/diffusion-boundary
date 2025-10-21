@@ -12,6 +12,10 @@ class BaseClassifier:
         self.model.to(device)
         self.model.eval()
 
+    def get_model(self):
+        """Return the model."""
+        return self.model
+
     def predict(self, tensor_images):
         """Run forward pass and return predictions."""
         raise NotImplementedError("Subclasses should implement this method")

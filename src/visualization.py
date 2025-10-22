@@ -84,23 +84,22 @@ def visualize_top_synthetic_metric(images_dataset, results, sort_metric, ascendi
 
 
 def visualize_sample_synthetic_images(
-    synth_dataset, synth_dataset_res, sample_size, sort_metric, display_rgb, n_cols=10
+    synth_dataset, synth_dataset_res, sample_size, sort_metric, display_rgb, n_cols=10, sort=True
 ):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
-    # TODO: uncomment this to have a diverse sample ordered by metric
-    # order dataset by metric and select top sample
-    # results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
+    if sort:
+        # order dataset by metric and select top sample
+        results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
 
-    # check how many elements have less than half of the max value for the metric (minimize version)
-    # mask = synth_dataset_res[sort_metric] <= synth_dataset_res[sort_metric].max() / 2
-    # if mask.sum() <= sample_size:
-    #    results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
-    # else:
-    #    results = synth_dataset_res[mask].sample(sample_size)
-
-    # TODO: uncomment this to have a random sample
-    # get only first 10
-    results = synth_dataset_res.head(sample_size)
+        # check how many elements have less than half of the max value for the metric (minimize version)
+        mask = synth_dataset_res[sort_metric] <= synth_dataset_res[sort_metric].max() / 2
+        if mask.sum() <= sample_size:
+            results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
+        else:
+            results = synth_dataset_res[mask].sample(sample_size)
+    else:
+        # get only first 10
+        results = synth_dataset_res.head(sample_size)
 
     # prepare grid
     n_rows = (results.shape[0] + n_cols - 1) // n_cols

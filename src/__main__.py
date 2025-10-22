@@ -430,6 +430,7 @@ def stress_test_classifier(
         diffusion_config["args"]["guidance"],  # if diffusion_config["pipeline"] == "guidance" else "entropy",
         default_configs["display-rgb"],
         n_cols=5,
+        sort=True,
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
     # wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})

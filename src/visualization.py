@@ -318,4 +318,6 @@ def occlusion_map(clf, image, device, target_dict):
         viz.visualize_image_attr(attr_np, orig, method="blended_heat_map",sign="all", show_colorbar=True, plt_fig_axis=(fig, axes[i]))
         axes[i].set_title(target_dict[target_key], fontsize=12)
 
+    # TODO: "add" map or consesus map
+
     return fig

@@ -42,6 +42,7 @@ from src.visualization import (
     visualize_metrics_distributions,
     visualize_sample_synthetic_images,
     visualize_top_synthetic_metric,
+    occlusion_map,
 )
 
 
@@ -323,6 +324,17 @@ def stress_test_classifier(
 
     # if we need to generate only 1 image, finish without evaluation
     if evaluation_config["num-images"] == 1:
+        # create saliency maps for the image generated
+        image, _ = synth_dataset[0]
+
+        # create dictionary of target idx to target name
+        class_dict = {
+            synth_dataset.get_class_idx(class_name): synth_dataset.class_labels[synth_dataset.get_class_idx(class_name)] 
+            for class_name in diffusion_config["args"]["classes"]
+        }
+        attr_map = occlusion_map(classifier.get_model(), image, default_configs["device"], class_dict)
+        wandb.log({"occlusion_map": wandb.Image(attr_map)})
+
         wandb.finish()
         return 0
 

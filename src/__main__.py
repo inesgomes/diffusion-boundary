@@ -193,6 +193,30 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
     return args
 
 
+def get_attribution_map(attr_type, classifier, dataset, idx_img, classes, device):
+    """Get attribution map for a given classifier and an image from the dataset."""
+    # get the image to be explained
+    image, _ = dataset[idx_img]
+
+    # dataframe with name, index and probability
+    probs, _ = classifier.predict(image.unsqueeze(0).to(device))
+    probs = probs.detach().cpu().numpy()[0]
+    data = [
+        (
+            dataset.get_class_idx(class_name),
+            dataset.class_labels[dataset.get_class_idx(class_name)],
+            probs[dataset.get_class_idx(class_name)]
+        )
+        for class_name in classes
+    ]
+    target_info = pd.DataFrame(data, columns=["idx", "label", "prob"])
+
+    if attr_type == "occlusion":
+       return occlusion_map(classifier.get_model(), image, device, target_info)
+    
+    raise ValueError(f"Attribution map type {attr_type} not recognized.")
+    
+
 def generate_images(diffusion_settings, classifier, dataset, num_images, batch_size, seed, device):
     """Generate images using the diffusion pipeline described in the config file."""
     # get diffusion pipeline
@@ -324,24 +348,14 @@ def stress_test_classifier(
 
     # if we need to generate only 1 image, finish without evaluation
     if evaluation_config["num-images"] == 1:
-        # get the generated image
-        image, _ = synth_dataset[0]
-
-        # dataframe with name, index and probability
-        probs, _ = classifier.predict(image.unsqueeze(0).to(default_configs["device"]))
-        probs = probs.detach().cpu().numpy()[0]
-        data = [
-            (
-                synth_dataset.get_class_idx(class_name),
-                synth_dataset.class_labels[synth_dataset.get_class_idx(class_name)],
-                probs[synth_dataset.get_class_idx(class_name)]
-            )
-            for class_name in diffusion_config["args"]["classes"]
-        ]
-        target_info = pd.DataFrame(data, columns=["idx", "label", "prob"])
-
-        # create saliency maps for the image generated
-        attr_map = occlusion_map(classifier.get_model(), image, default_configs["device"], target_info)
+        attr_map = get_attribution_map(
+            "occlusion",
+            classifier,
+            synth_dataset,
+            0,
+            diffusion_config["args"]["classes"],
+            default_configs["device"],
+        )
         wandb.log({"occlusion_map": wandb.Image(attr_map)})
 
         wandb.finish()

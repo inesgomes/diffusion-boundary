@@ -98,7 +98,6 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # minimize or maximize?
         if metric < 0:
             return -metric, -normalized_grad
-
         return metric, normalized_grad
 
     def decode_latents(self, latents, output_type=None):

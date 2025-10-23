@@ -324,15 +324,24 @@ def stress_test_classifier(
 
     # if we need to generate only 1 image, finish without evaluation
     if evaluation_config["num-images"] == 1:
-        # create saliency maps for the image generated
+        # get the generated image
         image, _ = synth_dataset[0]
 
-        # create dictionary of target idx to target name
-        class_dict = {
-            synth_dataset.get_class_idx(class_name): synth_dataset.class_labels[synth_dataset.get_class_idx(class_name)] 
+        # dataframe with name, index and probability
+        probs, _ = classifier.predict(image.unsqueeze(0).to(default_configs["device"]))
+        probs = probs.detach().cpu().numpy()[0]
+        data = [
+            (
+                synth_dataset.get_class_idx(class_name),
+                synth_dataset.class_labels[synth_dataset.get_class_idx(class_name)],
+                probs[synth_dataset.get_class_idx(class_name)]
+            )
             for class_name in diffusion_config["args"]["classes"]
-        }
-        attr_map = occlusion_map(classifier.get_model(), image, default_configs["device"], class_dict)
+        ]
+        target_info = pd.DataFrame(data, columns=["idx", "label", "prob"])
+
+        # create saliency maps for the image generated
+        attr_map = occlusion_map(classifier.get_model(), image, default_configs["device"], target_info)
         wandb.log({"occlusion_map": wandb.Image(attr_map)})
 
         wandb.finish()

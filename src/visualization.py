@@ -283,40 +283,50 @@ def visualize_features_umap(real_features, real_labels, synth_features, guidance
     plt.legend()
     return fig
 
-def occlusion_map(clf, image, device, target_dict):
+def occlusion_map(clf, image, device, target_info):
     """Create saliency maps for the given images and classifier"""
 
     def forward_func(inputs):
         """Captum-compatible forward function that returns a tensor."""
         return clf(inputs).logits
 
+    # input image tensor
     input_tensor = image.unsqueeze(0).to(device)
     input_tensor.requires_grad = True
-
+    
+    # normalize original image for visualization
     orig = input_tensor.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
     orig = (orig - orig.min()) / (orig.max() - orig.min())
 
     # create figure of size 1xN where N is number of targets
-    fig, axes = plt.subplots(1, len(target_dict)+1, figsize=(4 * len(target_dict)+1, 4))
+    fig, axes = plt.subplots(1, len(target_info)+2, figsize=(4 * len(target_info)+2, 4))
 
     axes[0].imshow(orig)
     axes[0].set_title("Original", fontsize=12)
     axes[0].axis("off")
 
-    for i, target_key in enumerate(target_dict.keys(), start=1):
+    attr_maps = []
+
+    for i, target in target_info.iterrows():
         # compute gradient shap
         attributions = Occlusion(forward_func).attribute(
             input_tensor,
-            target=target_key,
+            target=target["idx"],
             sliding_window_shapes=(3, 8, 8),
             strides=(3, 4, 4),
             baselines=0,
         )
+        attr_maps.append(attributions)
         # visualization
         attr_np = attributions.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
-        viz.visualize_image_attr(attr_np, orig, method="blended_heat_map",sign="all", show_colorbar=True, plt_fig_axis=(fig, axes[i]))
-        axes[i].set_title(target_dict[target_key], fontsize=12)
+        viz.visualize_image_attr(attr_np, orig, method="blended_heat_map",sign="all", show_colorbar=True, plt_fig_axis=(fig, axes[i+1]))
+        axes[i+1].set_title(f"{target['label']} ({target['prob']:.3f})", fontsize=12)
 
-    # TODO: "add" map or consesus map
+    # normalize and sum
+    attr_maps = [ attr / np.max(np.abs(attr.detach().cpu().numpy())) for attr in attr_maps]
+    attr_sum = sum(attr_maps)
+    attr_sum_np = attr_sum.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
+    viz.visualize_image_attr(attr_sum_np, orig, method="blended_heat_map",sign="all", show_colorbar=True, plt_fig_axis=(fig, axes[i+2]))
+    axes[i+2].set_title("normalized sum", fontsize=12)
 
     return fig

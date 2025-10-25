@@ -70,7 +70,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         images = self.decode_latents(latents_0)
 
         # save images mid denoising
-        #wandb.log({"mid_denoise_image": wandb.Image(images), "_diffusion_step": t})
+        # wandb.log({"mid_denoise_image": wandb.Image(images), "_diffusion_step": t})
 
         # classifier transformation
         images_t = transformation.transform_images(images)
@@ -78,11 +78,15 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # compute the probabilities and the metric
         probs, logits = classifier.predict(images_t)
         metric = compute_metric(guidance_type, probs, logits=logits, labels_idx=labels_idx).mean()
+        # TODO debugging latents modification
+        # print(probs[0][151])
+        # print(probs[0][157])
+        # print(metric)
 
         # compute the gradient, in relation to the original latent
         grad = torch.autograd.grad(abs(metric), latents)[0]
 
-        # norm gradients to Linf norm (according to https://arxiv.org/pdf/2203.17260)
+        # norm gradients to L inf norm (according to https://arxiv.org/pdf/2203.17260)
         # beaware of exploding gradients
         if torch.isfinite(grad).all():
             norm = torch.max(torch.abs(grad)).detach()
@@ -93,7 +97,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
                 normalized_grad = grad  # return as-is if all zeros
         else:
             print("Warning: grad contains NaN or Inf, skipping normalization.")
-            normalized_grad = torch.zeros_like(grad)  
+            normalized_grad = torch.zeros_like(grad)
 
         # minimize or maximize?
         if metric < 0:
@@ -227,6 +231,10 @@ class LatentClassifierGuidance(DiffusionPipeline):
 
             # 4. predict the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_prediction, t, latents).prev_sample
+
+            # TODO: check the original prediction of the sample and log it
+            # the idea is to see if the image is blurry or not in the beginning
+            #wandb.log({"mid_original_image": wandb.Image(images), "_diffusion_step": t})
 
             # log the images over time, if only one image is being processed
             if log_denoising_images & (batch_size == 1):

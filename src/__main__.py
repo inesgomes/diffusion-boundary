@@ -458,6 +458,7 @@ def stress_test_classifier(
 
     # sample: grid of images and respective probs
     # entropy is default metric to sort, if we have no guidance
+    print("Visualizing sample images...")
     grid, _ = visualize_sample_synthetic_images(
         synth_dataset,
         synth_dataset_res,
@@ -465,10 +466,15 @@ def stress_test_classifier(
         diffusion_config["args"]["guidance"],  # if diffusion_config["pipeline"] == "guidance" else "entropy",
         default_configs["display-rgb"],
         n_cols=5,
-        sort=True,
+        sort=False, # TODO: True if we want to see best samples
     )
     wandb.log({"sample_grid": wandb.Image(grid)})
     # wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
+
+    # TODO: remove attribution map for first image
+    print("Generating attribution map...")
+    attr_map = get_attribution_map("occlusion", classifier,synth_dataset, 0, diffusion_config["args"]["classes"],default_configs["device"],)
+    wandb.log({"occlusion_map": wandb.Image(attr_map)})
 
     if default_configs["save-disk"]:
         save_results_to_disk(synth_dataset_res, "synthetic")

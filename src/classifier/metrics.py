@@ -154,7 +154,7 @@ def compute_ideal_gaussian_loss(probs, labels_idx):
 
     Goal: minimize
     """
-    var = torch.full_like(input=probs, fill_value=0.1) # consider receiving this value as an argument
+    var = torch.full_like(input=probs, fill_value=0.05) # consider receiving this value as an argument
     target = torch.zeros(*probs.shape, device=probs.device)
     for idx in labels_idx:
         target[:, idx] = 1 / len(labels_idx)

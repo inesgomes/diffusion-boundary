@@ -3,8 +3,6 @@
 ![License](https://img.shields.io/static/v1?label=license&message=CC-BY-NC-ND-4.0&color=green)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 
-Code for the submitted paper "*Stress Testing Classifiers around the Decision Boundary with Latent Difusion*" submitted at BMVC 2025.
-
 This framework needs:
 - **image classifier**: should be a deep learning model
 - **dataset**: should be in the same distribution that the classifier was trained - e.g., it can be the training or test set

@@ -220,7 +220,7 @@ def calculate_feature_metrics(real_dataset, fake_dataset, target, batch_size, de
     kdn_results, kdn_nbr = compute_kdn(real_features, real_labels, fake_features, boundary_labels, k=10)
     synth_metrics = pd.DataFrame({"kdn": kdn_results, "kdn_nbr": kdn_nbr})
 
-    return synth_metrics, real_features, real_labels, fake_features
+    return synth_metrics, real_features, fake_features
 
 
 def get_dataset_features(dataset, batch_size, device):

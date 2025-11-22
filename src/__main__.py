@@ -36,13 +36,13 @@ from src.evaluation import (
 )
 from src.utils import generate_run_id, load_configurations
 from src.visualization import (
+    occlusion_map,
     visualize_class_distributions,
     visualize_confusion,
     visualize_features_umap,
     visualize_metrics_distributions,
     visualize_sample_synthetic_images,
     visualize_top_synthetic_metric,
-    occlusion_map,
 )
 
 
@@ -205,17 +205,17 @@ def get_attribution_map(attr_type, classifier, dataset, idx_img, classes, device
         (
             dataset.get_class_idx(class_name),
             dataset.class_labels[dataset.get_class_idx(class_name)],
-            probs[dataset.get_class_idx(class_name)]
+            probs[dataset.get_class_idx(class_name)],
         )
         for class_name in classes
     ]
     target_info = pd.DataFrame(data, columns=["idx", "label", "prob"])
 
     if attr_type == "occlusion":
-       return occlusion_map(classifier.get_model(), image, device, target_info)
-    
+        return occlusion_map(classifier.get_model(), image, device, target_info)
+
     raise ValueError(f"Attribution map type {attr_type} not recognized.")
-    
+
 
 def generate_images(diffusion_settings, classifier, dataset, num_images, batch_size, seed, device):
     """Generate images using the diffusion pipeline described in the config file."""
@@ -264,6 +264,112 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
     return images
 
 
+def stress_test_evaluator(real_dataset, synth_dataset, classifier, boundary_classes, args):
+    """Evaluate both real and synthetic datasets using metrics, and save results to disk if needed."""
+    # compute reference dataset metrics that need the classifer
+    real_dataset_res = prepare_dataset_results(
+        real_dataset,
+        classifier,
+        boundary_classes,
+        args["batch-size"],
+        args["device"],
+        args["mc-dropout"]["n-samples"],
+        args["mc-dropout"]["threshold"],
+    )
+
+    # compute synthetic dataset metrics that need the classifer
+    synth_dataset_res = prepare_dataset_results(
+        synth_dataset,
+        classifier,
+        boundary_classes,
+        args["batch-size"],
+        args["device"],
+        args["mc-dropout"]["n-samples"],
+        args["mc-dropout"]["threshold"],
+    )
+
+    # compute synthetic metrics that need features and target (currently is only KDN)
+    synth_metrics, real_features, fake_features = calculate_feature_metrics(
+        real_dataset,
+        synth_dataset,
+        boundary_classes,
+        args["batch-size"],
+        args["device"],
+    )
+    synth_dataset_res = pd.concat([synth_dataset_res, synth_metrics], axis=1)
+    valid_metrics = get_valid_metrics(args["n_classes"], synth_dataset_res.columns)
+
+    # compute evaluation of synthetic dataset
+    eval_metrics = calculate_evaluation_metrics(real_features, fake_features, synth_dataset_res, valid_metrics)
+
+    # (fid needs to be calulated in a different way)
+    eval_metrics["fid"] = calculate_fid_metric(real_dataset, synth_dataset, args["batch-size"], args["device"])
+
+    if args["save-metrics-disk"]:
+        save_results_to_disk(synth_dataset_res, "synthetic")
+        save_results_to_disk(real_dataset_res, "real")
+
+    return eval_metrics, valid_metrics, real_dataset_res, synth_dataset_res, real_features, fake_features
+
+
+def stress_test_visualizations(
+    real_dataset_res, real_features, real_labels, synth_dataset, synth_dataset_res, fake_features, valid_metrics, args
+):
+    """_summary_ Visualizations for the stress test.
+
+    Args:
+        real_features (_type_): _description_
+        real_labels (_type_): _description_
+        synth_dataset (_type_): _description_
+        synth_dataset_res (_type_): _description_
+        diffusion_config (_type_): _description_
+        args (_type_): _description_
+    """
+    # umap visualization of features
+    features_umap = visualize_features_umap(
+        real_features, real_labels, fake_features, synth_dataset_res[args["args"]["guidance"]]
+    )
+
+    # top n images with guidance metric
+    fig = visualize_top_synthetic_metric(
+        synth_dataset,
+        synth_dataset_res,
+        sort_metric=args["args"]["guidance"],
+        ascending=True,  # minimize
+        top_n=5,
+        display_rgb=args["display-rgb"],
+    )
+
+    # melt real and synthetic values
+    real_vs_synth = (
+        pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"])
+        .reset_index()
+        .rename(columns={"level_0": "keys"})
+        .drop(columns=["level_1"])
+    )
+
+    # metric distribution (real vs fake) - boxplot
+    dist_metric = visualize_metrics_distributions(real_vs_synth, valid_metrics)
+
+    # class distributions for top classes - kde plot
+    dist_labels = visualize_class_distributions(
+        real_vs_synth, classes=args["args"]["classes"], n_classes=args["n_classes"]
+    )
+
+    # ambiguity matrix (only if low number of classes)
+    viz_pairs = None
+    table_confusion = None
+    if args["n_classes"] <= 10:
+        viz_pairs, table_confusion = visualize_confusion(
+            real_dataset_res,
+            synth_dataset_res,
+            args["n_classes"],
+            args["certainty-threshold"],
+        )
+
+    return features_umap, fig, dist_metric, dist_labels, viz_pairs, table_confusion
+
+
 def stress_test_classifier(
     project_name, group_name, default_configs, dataset_config, classifier_config, diffusion_config, evaluation_config
 ):
@@ -288,8 +394,8 @@ def stress_test_classifier(
                 else classifier_config["name"]
             ),
             "diffusion": diffusion_config_txt,
-            "save-disk": default_configs["save-disk"],
-            # "certainty-threshold": evaluation_config["certainty-threshold"],
+            "save-metrics-disk": default_configs["save-metrics-disk"],
+            "save-images-disk": default_configs["save-images-disk"],
         },
     )
 
@@ -348,6 +454,61 @@ def stress_test_classifier(
 
     # if we need to generate only 1 image, finish without evaluation
     if evaluation_config["num-images"] == 1:
+        wandb.finish()
+        return 0
+
+    # save images to disk, if needed
+    if default_configs["save-images-disk"]:
+        save_images_to_disk(images)
+
+    # evaluate both datasets
+    args = {**default_configs, **evaluation_config, **dataset_config}
+    eval_metrics, valid_metrics, real_dataset_res, synth_dataset_res, real_features, fake_features = (
+        stress_test_evaluator(real_dataset, synth_dataset, classifier, diffusion_config["args"]["classes"], args)
+    )
+
+    # log metrics
+    wandb.log(eval_metrics)
+
+    # visualizations
+
+    # sample: grid of images and respective probs
+    print("Visualizing sample images...")
+    grid, _ = visualize_sample_synthetic_images(
+        synth_dataset,
+        synth_dataset_res,
+        evaluation_config["viz-sample-size"],
+        diffusion_config["args"]["guidance"],  # if diffusion_config["pipeline"] == "guidance" else "entropy",
+        default_configs["display-rgb"],
+        n_cols=5,
+        sort=True,  # True if we want to see best samples
+    )
+    wandb.log({"sample_grid": wandb.Image(grid)})
+    # wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
+
+    if default_configs["log-plots"]:
+        print("Generating visualizations...")
+        args = {**args, **diffusion_config}
+        features_umap, fig_sample, dist_metric, dist_labels, viz_pairs, table_confusion = stress_test_visualizations(
+            real_dataset_res,
+            real_features,
+            real_labels,
+            synth_dataset,
+            synth_dataset_res,
+            fake_features,
+            valid_metrics,
+            args,
+        )
+
+        wandb.log({"umap": wandb.Image(features_umap)})
+        wandb.log({f"{diffusion_config['args']['guidance']}_sample": wandb.Image(fig_sample)})
+        wandb.log({"dist_metrics": wandb.Image(dist_metric)})
+        wandb.log({"dist_labels": wandb.Image(dist_labels)})
+        wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
+        wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
+
+    if evaluation_config["attr-map"]:
+        print("Generating attribution map...")
         attr_map = get_attribution_map(
             "occlusion",
             classifier,
@@ -357,128 +518,6 @@ def stress_test_classifier(
             default_configs["device"],
         )
         wandb.log({"occlusion_map": wandb.Image(attr_map)})
-
-        wandb.finish()
-        return 0
-
-    # save images to disk, if needed
-    if default_configs["save-disk"]:
-        save_images_to_disk(images)
-
-    # compute reference dataset metrics that need the classifer
-    real_dataset_res = prepare_dataset_results(
-        real_dataset,
-        classifier,
-        diffusion_config["args"]["classes"],
-        default_configs["batch-size"],
-        default_configs["device"],
-        evaluation_config["mc-dropout"]["n-samples"],
-        evaluation_config["mc-dropout"]["threshold"],
-    )
-
-    # compute synthetic dataset metrics that need the classifer
-    synth_dataset_res = prepare_dataset_results(
-        synth_dataset,
-        classifier,
-        diffusion_config["args"]["classes"],
-        default_configs["batch-size"],
-        default_configs["device"],
-        evaluation_config["mc-dropout"]["n-samples"],
-        evaluation_config["mc-dropout"]["threshold"],
-    )
-
-    # compute synthetic metrics that need features and target (currently is only KDN)
-    synth_metrics, real_features, real_labels, fake_features = calculate_feature_metrics(
-        real_dataset,
-        synth_dataset,
-        diffusion_config["args"]["classes"],
-        default_configs["batch-size"],
-        default_configs["device"],
-    )
-    synth_dataset_res = pd.concat([synth_dataset_res, synth_metrics], axis=1)
-    valid_metrics = get_valid_metrics(dataset_config["n_classes"], synth_dataset_res.columns)
-
-    # compute evaluation of synthetic dataset
-    eval_metrics = calculate_evaluation_metrics(real_features, fake_features, synth_dataset_res, valid_metrics)
-
-    # (fid needs to be calulated in a different way)
-    eval_metrics["fid"] = calculate_fid_metric(
-        real_dataset, synth_dataset, default_configs["batch-size"], default_configs["device"]
-    )
-
-    # log metrics
-    wandb.log(eval_metrics)
-
-    if default_configs["log-plots"]:
-        # umap visualization of features
-        features_umap = visualize_features_umap(
-            real_features, real_labels, fake_features, synth_dataset_res[diffusion_config["args"]["guidance"]]
-        )
-        wandb.log({"umap": wandb.Image(features_umap)})
-
-        # top n images with guidance metric
-        fig = visualize_top_synthetic_metric(
-            synth_dataset,
-            synth_dataset_res,
-            sort_metric=diffusion_config["args"]["guidance"],
-            ascending=True,  # minimize
-            top_n=5,
-            display_rgb=default_configs["display-rgb"],
-        )
-        wandb.log({f"{diffusion_config['args']['guidance']}_sample": wandb.Image(fig)})
-
-        # melt real and synthetic values
-        real_vs_synth = (
-            pd.concat([real_dataset_res, synth_dataset_res], keys=["Real", "Synthetic"])
-            .reset_index()
-            .rename(columns={"level_0": "keys"})
-            .drop(columns=["level_1"])
-        )
-
-        # metric distribution (real vs fake) - boxplot
-        dist_metric = visualize_metrics_distributions(real_vs_synth, valid_metrics)
-        wandb.log({"dist_metrics": wandb.Image(dist_metric)})
-
-        # class distributions for top classes - kde plot
-        dist_labels = visualize_class_distributions(
-            real_vs_synth, classes=diffusion_config["args"]["classes"], n_classes=dataset_config["n_classes"]
-        )
-        wandb.log({"dist_labels": wandb.Image(dist_labels)})
-
-        # ambiguity matrix (only if low number of classes)
-        if dataset_config["n_classes"] <= 10:
-            viz_pairs, table_confusion = visualize_confusion(
-                real_dataset_res,
-                synth_dataset_res,
-                dataset_config["n_classes"],
-                evaluation_config["certainty-threshold"],
-            )
-            wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
-            wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
-
-    # sample: grid of images and respective probs
-    # entropy is default metric to sort, if we have no guidance
-    print("Visualizing sample images...")
-    grid, _ = visualize_sample_synthetic_images(
-        synth_dataset,
-        synth_dataset_res,
-        evaluation_config["viz-sample-size"],
-        diffusion_config["args"]["guidance"],  # if diffusion_config["pipeline"] == "guidance" else "entropy",
-        default_configs["display-rgb"],
-        n_cols=5,
-        sort=False, # TODO: True if we want to see best samples
-    )
-    wandb.log({"sample_grid": wandb.Image(grid)})
-    # wandb.log({"_sample_probabilities": wandb.Table(dataframe=results)})
-
-    # TODO: remove attribution map for first image
-    print("Generating attribution map...")
-    attr_map = get_attribution_map("occlusion", classifier,synth_dataset, 0, diffusion_config["args"]["classes"],default_configs["device"],)
-    wandb.log({"occlusion_map": wandb.Image(attr_map)})
-
-    if default_configs["save-disk"]:
-        save_results_to_disk(synth_dataset_res, "synthetic")
-        save_results_to_disk(real_dataset_res, "real")
 
     # finish wandb
     wandb.finish()

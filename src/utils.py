@@ -18,22 +18,22 @@ def generate_run_id():
 def set_configuration_default_values(config):
     """Set default values for missing configuration parameters."""
     # manual vs random seed
-    if "seed" not in config:
-        config["seed"] = random.randint(1, 100)
+    if "seed" not in config["user-args"]:
+        config["user-args"]["seed"] = random.randint(1, 100)
 
     # save images and datasets locally
-    if "save-images-disk" not in config:
-        config["save-images-disk"] = False
-    if "save-metrics-disk" not in config:
-        config["save-metrics-disk"] = False
+    if "save-images-disk" not in config["user-args"]:
+        config["user-args"]["save-images-disk"] = False
+    if "save-metrics-disk" not in config["user-args"]:
+        config["user-args"]["save-metrics-disk"] = False
+
+    # check RGB display (only false for grayscale datasets)
+    if "display-rgb" not in config["user-args"]:
+        config["user-args"]["display-rgb"] = True
 
     # dataset split (in imagenet is train, otherwise test)
     if "split" not in config["dataset"]:
         config["dataset"]["split"] = "test"
-
-    # check RGB display (only false for grayscale datasets)
-    if "display-rgb" not in config["evaluation"]:
-        config["evaluation"]["display-rgb"] = True
 
     # check if the mc-dropout should be used
     if "mc-dropout" not in config["evaluation"]:

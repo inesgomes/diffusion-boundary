@@ -438,6 +438,11 @@ def stress_test_classifier(
         None,
     )
 
+    # uncomment if we want to get the images from disk
+    # images_path = os.getenv("FILESDIR") + "/logs/" + run_id + "/images.pkl"
+    # with open(images_path, "rb") as f:
+    #    images = torch.load(f)
+
     # generate images
     images = generate_images(
         diffusion_config,
@@ -504,8 +509,9 @@ def stress_test_classifier(
         wandb.log({f"{diffusion_config['args']['guidance']}_sample": wandb.Image(fig_sample)})
         wandb.log({"dist_metrics": wandb.Image(dist_metric)})
         wandb.log({"dist_labels": wandb.Image(dist_labels)})
-        wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
-        wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
+        if viz_pairs is not None and table_confusion is not None:
+            wandb.log({"pairs_cm": wandb.Image(viz_pairs)})
+            wandb.log({"_boundaries": wandb.Table(dataframe=table_confusion)})
 
     if evaluation_config["attr-map"]:
         print("Generating attribution map...")

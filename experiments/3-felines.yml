@@ -17,6 +17,7 @@ dataset:
 classifier:
   name: google/vit-base-patch16-224 # microsoft/resnet-50
   lib: transformers
+  calibrate: True
 
 diffusion:
   pipeline: latentguidance
@@ -29,10 +30,10 @@ diffusion:
       - leopard, Panthera pardus
       - jaguar, panther, Panthera onca, Felis onca
       - cheetah, chetah, Acinonyx jubatus
-    guidance: kldb
+    guidance: kldb_scaled
     # alpha
     alpha: #0.01 and 0.1
-      - 0
+      - 0 # save images to disk 
       - 0.01
       - 0.03
       - 0.05

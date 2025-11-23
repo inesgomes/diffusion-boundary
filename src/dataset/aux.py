@@ -40,8 +40,8 @@ TRANSFORMATIONS = {
     # manual imitation of the default transformation of the pretrained model microsoft/resnet-50 - tensor option
     "microsoft/resnet-50_tensor": T.Compose(
         [
-            T.Resize(224, interpolation=T.InterpolationMode.BILINEAR), 
-            T.CenterCrop(int(224 * 0.875)), # y
+            T.Resize(224, interpolation=T.InterpolationMode.BILINEAR),
+            T.CenterCrop(int(224 * 0.875)),  # y
             T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
             T.ConvertImageDtype(torch.float32),
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -99,14 +99,14 @@ def get_tst_dataset(dataset_name, dataset_split="test", n_samples=1, subset=None
     # check if dataset is in disk
     subset_name = "_".join(map(str, subset_idx))
 
-    path = os.getenv("FILESDIR") + f"/dataset/{dataset_name}_{n_samples}_{subset_name}"
+    path = os.getenv("FILESDIR") + f"/dataset/{dataset_name}_{dataset_split}_{n_samples}_{subset_name}"
     print("Reference dataset path: ", path)
 
     if os.path.exists(path):
         ds = load_from_disk(path)
     else:
         ds = get_tst_dataset_streaming(dataset_name, dataset_split, n_samples, subset_idx)
-        print("saving reference dataset...")
+        print(f"saving reference {dataset_split} dataset...")
         os.makedirs(path, exist_ok=True)
         ds.save_to_disk(path)
 

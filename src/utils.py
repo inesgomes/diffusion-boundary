@@ -77,6 +77,8 @@ def load_configurations(config_path):
             config["classifier"]["name"] = os.getenv("MODELS_DIR") + "/" + config["classifier"]["name"]
         if "corrupt" not in config["classifier"]:
             config["classifier"]["corrupt"] = 0
+        if "calibrate" not in config["classifier"]:
+            config["classifier"]["calibrate"] = False
 
     # check if guidance exists
     if "pipeline" not in config["diffusion"]:

@@ -16,6 +16,7 @@ from diffusers import (
     PNDMPipeline,
 )
 from dotenv import load_dotenv
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import CLIPModel, CLIPTokenizer
 
@@ -409,6 +410,26 @@ def stress_test_classifier(
         )
         if classifier_config["corrupt"] > 0:
             classifier.soft_corrupt_classifier(classifier_config["corrupt"])
+        if classifier_config["calibrate"]:
+            # prepare calibration dataset
+            calib_images, calib_labels, calib_class_labels = get_tst_dataset(
+                dataset_config["name"],
+                "validation",
+                300,  # I just need 300 images for calibration
+                dataset_config["subset"],
+            )
+            calib_dataset = DatasetFactory.dataset_from_lib(
+                classifier_config["lib"],
+                classifier_config["name"],
+                dataset_config["name"],
+                dataset_config["n_classes"],
+                calib_class_labels,
+                calib_images,
+            )
+            calib_dataset.set_labels(calib_labels)
+            calibloader = DataLoader(calib_dataset, batch_size=10, shuffle=False, num_workers=6)
+            # calibrate classifier
+            classifier.calibrate(calibloader)
 
     # get original dataset, to find the labels
     real_images, real_labels, class_labels = get_tst_dataset(
@@ -460,7 +481,6 @@ def stress_test_classifier(
     # if we need to generate only 1 image, finish without evaluation
     if evaluation_config["num-images"] == 1:
         # TODO: consider applying UMAP to see where the image lies in the feature space - use all classes that appear in the top 4 over selected image
-
         wandb.finish()
         return 0
 

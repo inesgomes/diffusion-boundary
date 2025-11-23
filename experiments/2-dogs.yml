@@ -5,7 +5,7 @@ user-args:
   seed: 28
   batch-size: 1
   save-metrics-disk: True
-  save-images-disk: True
+  save-images-disk: False
   log-plots: True
 
 dataset:
@@ -17,6 +17,7 @@ dataset:
 classifier:
   name: google/vit-base-patch16-224 # microsoft/resnet-50
   lib: transformers
+  calibrate: True
 
 diffusion:
   pipeline: latentguidance
@@ -28,10 +29,10 @@ diffusion:
     classes:
       - golden retriever
       - Labrador retriever
-    guidance: kldb # entropy
+    guidance: kldb_scaled # entropy
     # alpha
     alpha:
-      - 0
+      - 0 # save images to disk 
       - 0.01
       - 0.03
       - 0.05

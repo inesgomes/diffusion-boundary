@@ -18,7 +18,7 @@ MULTICLASS_METRICS = [
     "second-rank",
     "evidential-ambiguity",
     "kldb",
-    "kldb_log",
+    "kldb_scaled",
     "gaussian-target",
     # "margin",
     # "least-confidence",
@@ -29,7 +29,7 @@ BINARY_METRICS = [
     "margin",
     "deepgini",
     "kldb",
-    "kldb_log",
+    "kldb_scaled",
 ]  # "least-confidence"
 UNCERTAINTY_METRICS = ["mc-dropout-mean"]
 
@@ -146,12 +146,16 @@ def compute_probs_kl_divergence(probs, labels_idx):
     return -F.kl_div(probs.log(), target, reduction="none").sum(dim=1)
 
 
-def compute_probs_kl_divergence_log(probs, labels_idx):
+def compute_probs_kl_divergence_scaled(probs, labels_idx):
     """Compute the KL diveregence between the target and the probs. The target is having equal probabilities for the target classes and zero to the remaining ones.
 
     Goal: minimize
     """
     eps = 1e-10
+    k = len(labels_idx)
+    C = probs.shape[1]
+
+    gamma = (torch.log(torch.tensor(float(k))) / torch.log(torch.tensor(float(C)))) / 2.0
 
     target = torch.zeros(*probs.shape, device=probs.device)
     for idx in labels_idx:
@@ -160,13 +164,8 @@ def compute_probs_kl_divergence_log(probs, labels_idx):
 
     # kl divergence
     kl = F.kl_div(probs.log(), target, reduction="none").sum(dim=1)
-    # log scaled, to enphasize small values
-    kl_log = torch.log(kl + eps)
-    # minimum value should be 0
-    min_log = torch.log(torch.tensor(eps, dtype=kl_log.dtype, device=kl_log.device))
-    kl_log_shifted = kl_log - min_log
-    # minimize
-    return -kl_log_shifted
+    kl_scaled = (kl + eps) ** gamma
+    return -kl_scaled
 
 
 def compute_gaussian_loss(probs, logits):
@@ -232,7 +231,7 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
     # metrics that need the target classes
     target_functions = {
         "kldb": compute_probs_kl_divergence,
-        "kldb_log": compute_probs_kl_divergence_log,
+        "kldb_scaled": compute_probs_kl_divergence_scaled,
         "gaussian-target": compute_ideal_gaussian_loss,
     }
     # metrics that require multiple forward passes

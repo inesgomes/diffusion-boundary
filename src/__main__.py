@@ -459,6 +459,8 @@ def stress_test_classifier(
 
     # if we need to generate only 1 image, finish without evaluation
     if evaluation_config["num-images"] == 1:
+        # TODO: consider applying UMAP to see where the image lies in the feature space - use all classes that appear in the top 4 over selected image
+
         wandb.finish()
         return 0
 

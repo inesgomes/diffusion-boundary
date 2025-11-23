@@ -17,12 +17,20 @@ MULTICLASS_METRICS = [
     "deepgini",
     "second-rank",
     "evidential-ambiguity",
-    "kl-div-target",
-    "gaussian-target"
+    "kldb",
+    "kldb_log",
+    "gaussian-target",
     # "margin",
     # "least-confidence",
 ]
-BINARY_METRICS = ["confusion-distance", "binary-entropy", "margin", "deepgini", "kl-div-target"]  # "least-confidence"
+BINARY_METRICS = [
+    "confusion-distance",
+    "binary-entropy",
+    "margin",
+    "deepgini",
+    "kldb",
+    "kldb_log",
+]  # "least-confidence"
 UNCERTAINTY_METRICS = ["mc-dropout-mean"]
 
 
@@ -138,6 +146,29 @@ def compute_probs_kl_divergence(probs, labels_idx):
     return -F.kl_div(probs.log(), target, reduction="none").sum(dim=1)
 
 
+def compute_probs_kl_divergence_log(probs, labels_idx):
+    """Compute the KL diveregence between the target and the probs. The target is having equal probabilities for the target classes and zero to the remaining ones.
+
+    Goal: minimize
+    """
+    eps = 1e-10
+
+    target = torch.zeros(*probs.shape, device=probs.device)
+    for idx in labels_idx:
+        target[:, idx] = 1 / len(labels_idx)
+    target = torch.clip(target, min=eps)
+
+    # kl divergence
+    kl = F.kl_div(probs.log(), target, reduction="none").sum(dim=1)
+    # log scaled, to enphasize small values
+    kl_log = torch.log(kl + eps)
+    # minimum value should be 0
+    min_log = torch.log(torch.tensor(eps, dtype=kl_log.dtype, device=kl_log.device))
+    kl_log_shifted = kl_log - min_log
+    # minimize
+    return -kl_log_shifted
+
+
 def compute_gaussian_loss(probs, logits):
     """Calculate the cross-entropy loss of the classifier output.
 
@@ -150,11 +181,11 @@ def compute_gaussian_loss(probs, logits):
 
 
 def compute_ideal_gaussian_loss(probs, labels_idx):
-    """Calculate the gaussian loss when comparing to an ideal value (that is our target)
+    """Calculate the gaussian loss when comparing to an ideal value (that is our target).
 
     Goal: minimize
     """
-    var = torch.full_like(input=probs, fill_value=0.05) # consider receiving this value as an argument
+    var = torch.full_like(input=probs, fill_value=0.05)  # consider receiving this value as an argument
     target = torch.zeros(*probs.shape, device=probs.device)
     for idx in labels_idx:
         target[:, idx] = 1 / len(labels_idx)
@@ -200,8 +231,9 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
     }
     # metrics that need the target classes
     target_functions = {
-        "kl-div-target": compute_probs_kl_divergence,
-        "gaussian-target": compute_ideal_gaussian_loss
+        "kldb": compute_probs_kl_divergence,
+        "kldb_log": compute_probs_kl_divergence_log,
+        "gaussian-target": compute_ideal_gaussian_loss,
     }
     # metrics that require multiple forward passes
     uncertainty_functions = {

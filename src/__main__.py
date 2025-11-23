@@ -147,6 +147,8 @@ def _build_prompt_from_strategy(diffusion_classes, strategy):
     - "single" -> 'class1'; 'class2'; ...
     - anything else -> ''
     """
+    # do not use the scientific name, only the common name (before the comma) - simplify prompt
+    diffusion_classes = [cls.split(",")[0] for cls in diffusion_classes]
     # if strategy is "and", join all classes with " and "
     if strategy == "and":
         return [" and ".join(diffusion_classes)]

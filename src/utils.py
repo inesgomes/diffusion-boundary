@@ -97,6 +97,8 @@ def load_configurations(config_path):
         config["diffusion"]["args"]["alpha"] = [config["diffusion"]["args"]["alpha"]]
     if not isinstance(config["diffusion"]["args"]["guidance-scale"], list):
         config["diffusion"]["args"]["guidance-scale"] = [config["diffusion"]["args"]["guidance-scale"]]
+    if not isinstance(config["diffusion"]["args"]["guidance-freq"], list):
+        config["diffusion"]["args"]["guidance-freq"] = [config["diffusion"]["args"]["guidance-freq"]]
 
     # set default values for missing configuration parameters
     config = set_configuration_default_values(config)

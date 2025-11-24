@@ -30,11 +30,11 @@ diffusion:
       - leopard, Panthera pardus
       - jaguar, panther, Panthera onca, Felis onca
       - cheetah, chetah, Acinonyx jubatus
-    guidance: kldb_scaled
+    guidance: kldb 
     # alpha
     alpha: #0.01 and 0.1
-      - 0 # save images to disk 
-      - 0.01
+      #- 0 # save images to disk 
+      # - 0.01
       - 0.03
       - 0.05
       - 0.08

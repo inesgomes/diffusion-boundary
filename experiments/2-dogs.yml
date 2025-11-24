@@ -29,16 +29,20 @@ diffusion:
     classes:
       - golden retriever
       - Labrador retriever
-    guidance: kldb_scaled # entropy
+    guidance: kldb # entropy
     # alpha
     alpha:
-      - 0 # save images to disk 
-      - 0.01
-      - 0.03
-      - 0.05
+      #- 0 # save images to disk 
+      #- 0.01
+      #- 0.03
+      # - 0.05
       - 0.08
       - 0.1
     guidance-freq: 5
+      #- 1
+      #- 3
+      #- 5
+      #- 10
     # beta
     guidance-scale: 7.5
       # - 3

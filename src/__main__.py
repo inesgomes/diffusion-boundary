@@ -308,6 +308,8 @@ def stress_test_evaluator(real_dataset, synth_dataset, classifier, boundary_clas
     # (fid needs to be calulated in a different way)
     eval_metrics["fid"] = calculate_fid_metric(real_dataset, synth_dataset, args["batch-size"], args["device"])
 
+    # TODO: check why FID/density/coverage is different with different classifiers??
+
     if args["save-metrics-disk"]:
         save_results_to_disk(synth_dataset_res, "synthetic")
         save_results_to_disk(real_dataset_res, "real")
@@ -561,35 +563,40 @@ def main(configuration):
     classifier_config = configuration["classifier"]
     evaluation_config = configuration["evaluation"]
 
+    # get all combinations of guidance parameters
     guidance_metric = configuration["diffusion"]["args"]["guidance"]
     alpha = configuration["diffusion"]["args"]["alpha"]
     guidance_scale = configuration["diffusion"]["args"]["guidance-scale"]
+    guidance_freq = configuration["diffusion"]["args"]["guidance-freq"]
+
     diffusion_config = configuration["diffusion"]
 
     # the group will be a timestamp that this main started, so that we can join multiple runs
     group_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     i = 1
-    max_i = len(guidance_metric) * len(alpha) * len(guidance_scale)
+    max_i = len(guidance_metric) * len(alpha) * len(guidance_scale) * len(guidance_freq)
     for guidance_metric_value in guidance_metric:
         for alpha_value in alpha:
             for guidance_scale_value in guidance_scale:
-                diffusion_config["args"]["guidance"] = guidance_metric_value
-                diffusion_config["args"]["alpha"] = alpha_value
-                diffusion_config["args"]["guidance-scale"] = guidance_scale_value
+                for guidance_freq_value in guidance_freq:
+                    diffusion_config["args"]["guidance"] = guidance_metric_value
+                    diffusion_config["args"]["alpha"] = alpha_value
+                    diffusion_config["args"]["guidance-scale"] = guidance_scale_value
+                    diffusion_config["args"]["guidance-freq"] = guidance_freq_value
 
-                # apply stress testing
-                print(f"Starting stress test {i}/{max_i}...")
-                stress_test_classifier(
-                    configuration["project"],
-                    group_name,
-                    user_configs,
-                    dataset_config,
-                    classifier_config,
-                    diffusion_config,
-                    evaluation_config,
-                )
-                i += 1
+                    # apply stress testing
+                    print(f"Starting stress test {i}/{max_i}...")
+                    stress_test_classifier(
+                        configuration["project"],
+                        group_name,
+                        user_configs,
+                        dataset_config,
+                        classifier_config,
+                        diffusion_config,
+                        evaluation_config,
+                    )
+                    i += 1
 
 
 if __name__ == "__main__":

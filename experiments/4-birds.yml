@@ -15,7 +15,7 @@ dataset:
   num-images: 2500
 
 classifier:
-  name: google/vit-base-patch16-224
+  name: google/vit-base-patch16-224 # microsoft/resnet-50
   lib: transformers
   calibrate: True
 
@@ -31,10 +31,10 @@ diffusion:
       - red-backed sandpiper, dunlin, Erolia alpina
       - redshank, Tringa totanus
       - dowitcher
-    guidance: kldb_scaled
+    guidance: kldb
     # alpha
     alpha: #0.01 and 0.1
-      - 0 # save images to disk 
+      #- 0 # save images to disk 
       - 0.01
       - 0.03
       - 0.05

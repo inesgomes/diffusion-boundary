@@ -465,6 +465,7 @@ def stress_test_classifier(
 
     # uncomment if we want to get the images from disk
     # images_path = os.getenv("FILESDIR") + "/logs/" + run_id + "/images.pkl"
+    # images_path = os.getenv("FILESDIR") + "/biggan/birds_2500.pt"
     # with open(images_path, "rb") as f:
     #    images = torch.load(f)
 

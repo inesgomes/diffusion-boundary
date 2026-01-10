@@ -47,20 +47,20 @@ from src.visualization import (
 )
 
 
-def save_images_to_disk(images):
+def save_images_to_disk(images, title):
     """Save images to disk."""
     path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
     os.makedirs(path, exist_ok=True)
-    with open(f"{path}/images.pkl", "wb") as f:
-        torch.save(images, f)
-        print("Images saved at", path)
+    torch.save(images, f"{path}/images_{title}.pt")
+    print(f"{title} images saved at {path}")
 
 
 def save_results_to_disk(results: pd.DataFrame, name: str):
     """Save images to disk."""
     path = os.getenv("FILESDIR") + "/logs/" + wandb.run.id
     os.makedirs(path, exist_ok=True)
-    results.to_pickle(f"{path}/results_{name}.pkl")
+    # results.to_pickle(f"{path}/results_{name}.pkl")
+    results.to_parquet(f"{path}/results_{name}.parquet", index=False)
     print("Results saved at", path)
 
 
@@ -71,6 +71,42 @@ def get_valid_metrics(n_classes, dataset_columns):
     eval_metrics_name = list(set(UNCERTAINTY_METRICS) | set(sample_metrics) | set(EVAL_METRICS))
     # select only valid metrics (withou NaNs)
     return [col for col in eval_metrics_name if col in dataset_columns]
+
+
+def create_classifier(classifier_config, dataset_config, default_configs):
+    """General method to load pre-trained classifiers, corrupt them if needed and calibrate them if needed."""
+    classifier = None
+    if classifier_config is not None:
+        # load classifier
+        classifier = ClassifierFactory.model_from_lib(
+            classifier_config["lib"],
+            classifier_config["name"],
+            default_configs["device"],
+        )
+        # corrupt classifier if needed
+        if classifier_config["corrupt"] > 0:
+            classifier.soft_corrupt_classifier(classifier_config["corrupt"])
+        # calibrate classifier if needed
+        if classifier_config["calibrate"]:
+            # prepare calibration dataset
+            calib_images, calib_labels, calib_class_labels = get_tst_dataset(
+                dataset_config["name"],
+                "validation",
+                300,  # I just need 300 images for calibration
+                dataset_config["subset"],
+            )
+            calib_dataset = DatasetFactory.dataset_from_lib(
+                classifier_config["lib"],
+                classifier_config["name"],
+                dataset_config["name"],
+                dataset_config["n_classes"],
+                calib_class_labels,
+                calib_images,
+            )
+            calib_dataset.set_labels(calib_labels)
+            calibloader = DataLoader(calib_dataset, batch_size=10, shuffle=False, num_workers=6)
+            classifier.calibrate(calibloader)
+    return classifier
 
 
 def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=None, device="cpu"):
@@ -308,8 +344,6 @@ def stress_test_evaluator(real_dataset, synth_dataset, classifier, boundary_clas
     # (fid needs to be calulated in a different way)
     eval_metrics["fid"] = calculate_fid_metric(real_dataset, synth_dataset, args["batch-size"], args["device"])
 
-    # TODO: check why FID/density/coverage is different with different classifiers??
-
     if args["save-metrics-disk"]:
         save_results_to_disk(synth_dataset_res, "synthetic")
         save_results_to_disk(real_dataset_res, "real")
@@ -404,36 +438,8 @@ def stress_test_classifier(
         },
     )
 
-    # get classifier specifications
-    classifier = None
-    if classifier_config is not None:
-        classifier = ClassifierFactory.model_from_lib(
-            classifier_config["lib"],
-            classifier_config["name"],
-            default_configs["device"],
-        )
-        if classifier_config["corrupt"] > 0:
-            classifier.soft_corrupt_classifier(classifier_config["corrupt"])
-        if classifier_config["calibrate"]:
-            # prepare calibration dataset
-            calib_images, calib_labels, calib_class_labels = get_tst_dataset(
-                dataset_config["name"],
-                "validation",
-                300,  # I just need 300 images for calibration
-                dataset_config["subset"],
-            )
-            calib_dataset = DatasetFactory.dataset_from_lib(
-                classifier_config["lib"],
-                classifier_config["name"],
-                dataset_config["name"],
-                dataset_config["n_classes"],
-                calib_class_labels,
-                calib_images,
-            )
-            calib_dataset.set_labels(calib_labels)
-            calibloader = DataLoader(calib_dataset, batch_size=10, shuffle=False, num_workers=6)
-            # calibrate classifier
-            classifier.calibrate(calibloader)
+    # get classifier from specifications
+    classifier = create_classifier(classifier_config, dataset_config, default_configs)
 
     # get original dataset, to find the labels
     real_images, real_labels, class_labels = get_tst_dataset(
@@ -470,7 +476,7 @@ def stress_test_classifier(
     #    images = torch.load(f)
 
     # generate images
-    images = generate_images(
+    syn_images = generate_images(
         diffusion_config,
         classifier,
         synth_dataset,
@@ -479,7 +485,7 @@ def stress_test_classifier(
         default_configs["seed"],
         default_configs["device"],
     )
-    synth_dataset.set_images(images)
+    synth_dataset.set_images(syn_images)
 
     torch.cuda.empty_cache()
 
@@ -491,7 +497,8 @@ def stress_test_classifier(
 
     # save images to disk, if needed
     if default_configs["save-images-disk"]:
-        save_images_to_disk(images)
+        save_images_to_disk(syn_images, "synth")
+        save_images_to_disk(real_images, "real")
 
     # evaluate both datasets
     args = {**default_configs, **evaluation_config, **dataset_config}
@@ -559,18 +566,13 @@ def stress_test_classifier(
 
 def main(configuration):
     """Run the stress test per configuration."""
-    user_configs = configuration["user-args"]
-    dataset_config = configuration["dataset"]
-    classifier_config = configuration["classifier"]
-    evaluation_config = configuration["evaluation"]
+    diffusion_config = configuration["diffusion"]
 
     # get all combinations of guidance parameters
-    guidance_metric = configuration["diffusion"]["args"]["guidance"]
-    alpha = configuration["diffusion"]["args"]["alpha"]
-    guidance_scale = configuration["diffusion"]["args"]["guidance-scale"]
-    guidance_freq = configuration["diffusion"]["args"]["guidance-freq"]
-
-    diffusion_config = configuration["diffusion"]
+    guidance_metric = diffusion_config["args"]["guidance"]
+    alpha = diffusion_config["args"]["alpha"]
+    guidance_scale = diffusion_config["args"]["guidance-scale"]
+    guidance_freq = diffusion_config["args"]["guidance-freq"]
 
     # the group will be a timestamp that this main started, so that we can join multiple runs
     group_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -591,11 +593,11 @@ def main(configuration):
                     stress_test_classifier(
                         configuration["project"],
                         group_name,
-                        user_configs,
-                        dataset_config,
-                        classifier_config,
+                        configuration["user-args"],
+                        configuration["dataset"],
+                        configuration["classifier"],
                         diffusion_config,
-                        evaluation_config,
+                        configuration["evaluation"],
                     )
                     i += 1
 
@@ -607,10 +609,6 @@ if __name__ == "__main__":
     # enable torch32 for faster inference
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
-    # Set display options for Pandas
-    pd.set_option("display.max_rows", None)  # Show all rows
-    pd.set_option("display.max_columns", None)  # Show all columns
-    pd.set_option("display.width", None)  # Expand the width to fit the data
 
     # get arguments
     parser = argparse.ArgumentParser()

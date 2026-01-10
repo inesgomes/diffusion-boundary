@@ -95,7 +95,7 @@ dependencies:
       - pyarrow==18.1.0
       - pydantic==2.10.3
       - pydantic-core==2.27.1
-      - pymdma==0.1.6
+      - pymdma==0.2.2
       - pynndescent==0.5.13
       - pyparsing==3.2.0
       - python-dateutil==2.9.0.post0

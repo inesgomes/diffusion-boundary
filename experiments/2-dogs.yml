@@ -45,10 +45,10 @@ diffusion:
       # - 10
     # beta
     guidance-scale: 7.5
-      # - 3
-      # - 5
+      # - 4
+      # - 7.5
       # - 10
-      # - 15
+      # - 12
     guidance-rescale: 0.7
     negative-prompt: blurry, deformed, low quality, watermark, text, extra limbs, ugly # if not specified, it is empty 
 

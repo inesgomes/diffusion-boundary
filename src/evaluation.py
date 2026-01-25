@@ -13,7 +13,7 @@ from pymdma.image.measures.synthesis_val import (
     ImprovedRecall,
 )
 from pymdma.image.models.features import ExtractorFactory
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support
 from sklearn.neighbors import NearestNeighbors
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -82,6 +82,27 @@ def compute_mc_droupout_metrics(classifier, dataset, num_samples, drop_threshold
     return probs_dropout
 
 
+def print_performace_metrics(probs, labels):
+    """Calculate performance metrics for the classifier."""
+    predictions = probs.argmax(dim=1).detach().cpu().numpy()
+    unique_labels = np.unique(labels)
+
+    # accuracy
+    acc = accuracy_score(predictions, labels)
+    print(f"Accuracy: {acc:.2%}")
+
+    # macro F1-score
+    macro_f1 = f1_score(labels, predictions, average="macro", labels=unique_labels)
+    print(f"Macro F1-score: {macro_f1:.2f}")
+
+    # precision, recall, f1 per class
+    precision, recall, f1, _ = precision_recall_fscore_support(labels, predictions, average=None, labels=unique_labels)
+
+    print("Precision:", precision)
+    print("Recall:", recall)
+    print("F1-score:", f1)
+
+
 def prepare_dataset_results(dataset, classifier, target, batch_size, device, num_samples=None, drop_threshold=None):
     """Prepare the dataset results for visualization.
 
@@ -121,11 +142,9 @@ def prepare_dataset_results(dataset, classifier, target, batch_size, device, num
         if not torch.all(torch.isnan(metric_result)):
             results[metric] = torch.abs(metric_result).detach().cpu().numpy()
 
-    # (extra) calculate accuracy and show it, if labels exist
+    # (extra) calculate performance metrics and show it, if labels exist
     if labels is not None:
-        predictions = probs.argmax(dim=1).detach().cpu().numpy()
-        acc = accuracy_score(predictions, labels)
-        print(f"Accuracy: {acc:.2%}")
+        print_performace_metrics(probs, labels)
 
     return results
 
@@ -304,9 +323,11 @@ def calculate_evaluation_metrics(real_features, fake_features, synthetic_data_re
     # add average and median of selected metrics
     mean_values = synthetic_data_res[metrics].mean()
     median_values = synthetic_data_res[metrics].median()
+    sd_values = synthetic_data_res[metrics].std()
 
     for m in metrics:
         results_dict[f"{m}_avg"] = mean_values[m]
         results_dict[f"{m}_median"] = median_values[m]
+        results_dict[f"{m}_std"] = sd_values[m]
 
     return results_dict

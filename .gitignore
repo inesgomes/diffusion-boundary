@@ -167,8 +167,11 @@ cython_debug/
 
 # wandb
 /wandb
+/files
 
 # others
 README-INES.md
 src/huggingface.py
 experiments/old
+experiments/tst
+run_all.sh

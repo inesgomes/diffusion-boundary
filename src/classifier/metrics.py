@@ -17,11 +17,20 @@ MULTICLASS_METRICS = [
     "deepgini",
     "second-rank",
     "evidential-ambiguity",
-    "kl-div-target",
+    "kldb",
+    "kldb_scaled",
+    "gaussian-target",
     # "margin",
     # "least-confidence",
 ]
-BINARY_METRICS = ["confusion-distance", "binary-entropy", "margin", "deepgini", "kl-div-target"]  # "least-confidence"
+BINARY_METRICS = [
+    "confusion-distance",
+    "binary-entropy",
+    "margin",
+    "deepgini",
+    "kldb",
+    "kldb_scaled",
+]  # "least-confidence"
 UNCERTAINTY_METRICS = ["mc-dropout-mean"]
 
 
@@ -137,6 +146,28 @@ def compute_probs_kl_divergence(probs, labels_idx):
     return -F.kl_div(probs.log(), target, reduction="none").sum(dim=1)
 
 
+def compute_probs_kl_divergence_scaled(probs, labels_idx):
+    """Compute the KL diveregence between the target and the probs. The target is having equal probabilities for the target classes and zero to the remaining ones.
+
+    Goal: minimize
+    """
+    eps = 1e-10
+    k = len(labels_idx)
+    C = probs.shape[1]
+
+    gamma = (torch.log(torch.tensor(float(k))) / torch.log(torch.tensor(float(C)))) / 2.0
+
+    target = torch.zeros(*probs.shape, device=probs.device)
+    for idx in labels_idx:
+        target[:, idx] = 1 / len(labels_idx)
+    target = torch.clip(target, min=eps)
+
+    # kl divergence
+    kl = F.kl_div(probs.log(), target, reduction="none").sum(dim=1)
+    kl_scaled = (kl + eps) ** gamma
+    return -kl_scaled
+
+
 def compute_gaussian_loss(probs, logits):
     """Calculate the cross-entropy loss of the classifier output.
 
@@ -146,6 +177,25 @@ def compute_gaussian_loss(probs, logits):
     target = torch.full_like(input=probs, fill_value=0.5)  # target is 0.5 (binary)
     var = torch.full_like(input=probs, fill_value=0.01)  # variance is 0.1 (we can test different values)
     return F.gaussian_nll_loss(logits, target, var, reduction="none")
+
+
+def compute_ideal_gaussian_loss(probs, labels_idx):
+    """Calculate the gaussian loss when comparing to an ideal value (that is our target).
+
+    Goal: minimize
+    """
+    var = torch.full_like(input=probs, fill_value=0.05)  # consider receiving this value as an argument
+    target = torch.zeros(*probs.shape, device=probs.device)
+    for idx in labels_idx:
+        target[:, idx] = 1 / len(labels_idx)
+    target = torch.clip(target, min=1e-10)
+
+    # ideal loss: target vs target
+    ideal_loss = F.gaussian_nll_loss(target, target, var=var, reduction="none")
+    # current loss: probs vs target
+    loss = F.gaussian_nll_loss(probs, target, var=var, reduction="none")
+    # my loss
+    return -(loss - ideal_loss).sum(dim=1)
 
 
 def compute_mc_dropout_mean(probs_dropout):
@@ -180,7 +230,9 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
     }
     # metrics that need the target classes
     target_functions = {
-        "kl-div-target": compute_probs_kl_divergence,
+        "kldb": compute_probs_kl_divergence,
+        "kldb_scaled": compute_probs_kl_divergence_scaled,
+        "gaussian-target": compute_ideal_gaussian_loss,
     }
     # metrics that require multiple forward passes
     uncertainty_functions = {

@@ -1,12 +1,12 @@
-project: 20250401_text_image_diffusion
+project: 20251120_text_image_diffusion
 
 user-args: 
   device: cuda:1
   seed: 28
   batch-size: 1
-  save-disk: False
+  save-metrics-disk: True
+  save-images-disk: False
   log-plots: True
-  display-rgb: True
 
 dataset:
   name: ILSVRC/imagenet-1k
@@ -15,8 +15,9 @@ dataset:
   num-images: 2500
 
 classifier:
-  name: microsoft/resnet-50
+  name: google/vit-base-patch16-224 # microsoft/resnet-50
   lib: transformers
+  calibrate: True
 
 diffusion:
   pipeline: latentguidance
@@ -24,31 +25,27 @@ diffusion:
   type: sd
   args:
     num-inference-steps: 40
-    prompt-strategy: <classes>
-    classes: 
+    prompt-strategy: single # and 
+    classes:
       - leopard, Panthera pardus
       - jaguar, panther, Panthera onca, Felis onca
       - cheetah, chetah, Acinonyx jubatus
-    guidance: kl-div-target
+    guidance: kldb 
     # alpha
-    alpha:
-      - 0
-      - 0.05
-      - 0.1
-      - 0.15
-      - 0.2
-      - 0.5
-      - 1
+    alpha: 0.01
+      # - 0
+      # - 0.01
+      # - 0.03
+      # - 0.05
+      # - 0.08
+      # - 0.1
     guidance-freq: 5
     # beta
-    guidance-scale:
-      - 3
-      - 6
-      - 9
+    guidance-scale: 7.5
     guidance-rescale: 0.7
     negative-prompt: blurry, deformed, low quality, watermark, text, extra limbs, ugly # if not specified, it is empty 
 
 evaluation:
   num-images: 2500
   viz-sample-size: 10
-  certainty-threshold: 0.8
+  attr-map: False

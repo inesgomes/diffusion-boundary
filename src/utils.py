@@ -15,6 +15,39 @@ def generate_run_id():
     return f"{current_time.strftime('%Y-%m-%d')}T{seconds_since_midnight}"
 
 
+def set_configuration_default_values(config):
+    """Set default values for missing configuration parameters."""
+    # manual vs random seed
+    if "seed" not in config["user-args"]:
+        config["user-args"]["seed"] = random.randint(1, 100)
+
+    # save images and datasets locally
+    if "save-images-disk" not in config["user-args"]:
+        config["user-args"]["save-images-disk"] = False
+    if "save-metrics-disk" not in config["user-args"]:
+        config["user-args"]["save-metrics-disk"] = False
+
+    # check RGB display (only false for grayscale datasets)
+    if "display-rgb" not in config["user-args"]:
+        config["user-args"]["display-rgb"] = True
+
+    # dataset split (in imagenet is train, otherwise test)
+    if "split" not in config["dataset"]:
+        config["dataset"]["split"] = "test"
+
+    # check if the mc-dropout should be used
+    if "mc-dropout" not in config["evaluation"]:
+        config["evaluation"]["mc-dropout"] = {}
+        config["evaluation"]["mc-dropout"]["n-samples"] = None
+        config["evaluation"]["mc-dropout"]["threshold"] = None
+
+    # default value for certainty threshold (KDN metric and visualizations)
+    if "certainty-threshold" not in config["evaluation"]:
+        config["evaluation"]["certainty-threshold"] = 0.8
+
+    return config
+
+
 def load_configurations(config_path):
     """Load configuration file from path and modify accondingly."""
     try:
@@ -30,20 +63,22 @@ def load_configurations(config_path):
         print("Dataset name must be defined in the configuration file.")
         sys.exit(1)
 
-    # save images and datasets locally
-    if "save-disk" not in config:
-        config["save-disk"] = False
+    # check if dataset subset exist
+    if "subset" not in config["dataset"]:
+        config["dataset"]["subset"] = None
+        if "classes" in config["diffusion"]["args"]:
+            config["dataset"]["subset"] = config["diffusion"]["args"]["classes"]
 
-    # manual vs random seed
-    if "seed" not in config:
-        config["seed"] = random.randint(1, 100)
-
-    # check if classifier exist
+    # check if classifier exist and configure path
     if "classifier" not in config:
         config["classifier"] = None
     else:
         if config["classifier"]["lib"] == "local":
             config["classifier"]["name"] = os.getenv("MODELS_DIR") + "/" + config["classifier"]["name"]
+        if "corrupt" not in config["classifier"]:
+            config["classifier"]["corrupt"] = 0
+        if "calibrate" not in config["classifier"]:
+            config["classifier"]["calibrate"] = False
 
     # check if guidance exists
     if "pipeline" not in config["diffusion"]:
@@ -55,12 +90,6 @@ def load_configurations(config_path):
     if "negative-prompt" not in config["diffusion"]["args"]:
         config["diffusion"]["args"]["negative-prompt"] = ""
 
-    # check if the mc-dropout should be used
-    if "mc-dropout" not in config["evaluation"]:
-        config["evaluation"]["mc-dropout"] = {}
-        config["evaluation"]["mc-dropout"]["n-samples"] = None
-        config["evaluation"]["mc-dropout"]["threshold"] = None
-
     # transform certain arguments to list
     if not isinstance(config["diffusion"]["args"]["guidance"], list):
         config["diffusion"]["args"]["guidance"] = [config["diffusion"]["args"]["guidance"]]
@@ -68,18 +97,10 @@ def load_configurations(config_path):
         config["diffusion"]["args"]["alpha"] = [config["diffusion"]["args"]["alpha"]]
     if not isinstance(config["diffusion"]["args"]["guidance-scale"], list):
         config["diffusion"]["args"]["guidance-scale"] = [config["diffusion"]["args"]["guidance-scale"]]
+    if not isinstance(config["diffusion"]["args"]["guidance-freq"], list):
+        config["diffusion"]["args"]["guidance-freq"] = [config["diffusion"]["args"]["guidance-freq"]]
 
-    # check if dataset subset exist
-    if "subset" not in config["dataset"]:
-        config["dataset"]["subset"] = None
-        if "classes" in config["diffusion"]["args"]:
-            config["dataset"]["subset"] = config["diffusion"]["args"]["classes"]
-
-    if "split" not in config["dataset"]:
-        config["dataset"]["split"] = "test"
-
-    # check RGB display
-    if "display-rgb" not in config["evaluation"]:
-        config["evaluation"]["display-rgb"] = True
+    # set default values for missing configuration parameters
+    config = set_configuration_default_values(config)
 
     return config

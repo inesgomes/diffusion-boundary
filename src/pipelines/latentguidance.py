@@ -17,7 +17,7 @@ from src.classifier.metrics import compute_metric
 
 
 class LatentClassifierGuidance(DiffusionPipeline):
-    """Dummy pipeline to test diffusion models with a classifier."""
+    """Pipeline to test diffusion models with a classifier."""
 
     def __init__(self, text_encoder, vae, tokenizer, clip_model, feature_extractor, unet, scheduler):
         """Calculate the gradient of the selected metric with respect to the images, for latent diffusion models."""
@@ -57,14 +57,20 @@ class LatentClassifierGuidance(DiffusionPipeline):
         latent_scaled = self.scheduler.scale_model_input(latents, t)
         noise_prediction = self.unet(latent_scaled, t, encoder_hidden_states=prompt_embd).sample
 
-        # calculate prediction for the original sample
+        # calculate prediction for the original sample (k-LMS)
         sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
         latents_0 = latents - sigma_t * noise_prediction
+
+        # calculate prediction for the original sample (DDIM)
+        # alpha_prod_t = self.scheduler.alphas_cumprod[t]
+        # beta_prod_t = 1 - alpha_prod_t
+        # latents_0 = (latents - beta_prod_t ** (0.5) * noise_prediction) / alpha_prod_t ** (0.5)
 
         # decode the latents to images and transform to the classifier format
         images = self.decode_latents(latents_0)
 
-        # TODO: save these images here
+        # save images mid denoising
+        # wandb.log({"mid_denoise_image": wandb.Image(images), "_diffusion_step": t})
 
         # classifier transformation
         images_t = transformation.transform_images(images)
@@ -74,11 +80,26 @@ class LatentClassifierGuidance(DiffusionPipeline):
         metric = compute_metric(guidance_type, probs, logits=logits, labels_idx=labels_idx).mean()
 
         # compute the gradient, in relation to the original latent
-        grad = torch.autograd.grad(metric, latents)[0]
+        grad = torch.autograd.grad(abs(metric), latents)[0]
 
-        # norm gradients to Linf norm (according to https://arxiv.org/pdf/2203.17260)
-        normalized_grad = grad / (torch.max(torch.abs(grad)).detach() + 1e-10)
+        # norm gradients to L2 norm (according to https://arxiv.org/pdf/2310.00158)
+        # beaware of exploding gradients
+        if torch.isfinite(grad).all():
+            norm = grad.norm().detach()
+            if norm > 0:
+                normalized_grad = grad / (norm + 1e-10) * latents.norm().detach()
+            else:
+                print("Warning: no normalization")
+                normalized_grad = grad  # return as-is if all zeros
+        else:
+            print("Warning: grad contains NaN or Inf, skipping normalization.")
+            normalized_grad = torch.zeros_like(grad)
 
+        # another option: norm gradients to L inf norm (according to https://arxiv.org/pdf/2203.17260) - alpha [0, 1]
+
+        # minimize or maximize?
+        if metric < 0:
+            return -metric, -normalized_grad
         return metric, normalized_grad
 
     def decode_latents(self, latents, output_type=None):

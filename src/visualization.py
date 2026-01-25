@@ -10,6 +10,8 @@ from PIL import Image
 from umap import UMAP
 
 from src.evaluation import compute_classes_confusion
+from captum.attr import Occlusion
+from captum.attr import visualization as viz
 
 
 def format_label(row, n_classes: int, metrics: list):
@@ -17,12 +19,19 @@ def format_label(row, n_classes: int, metrics: list):
 
     Always shows top 3 classes and their respective probability value; KDN and their respective neighbors; It is also possible to enrich with other metrics if provided.
     """
+    # if label name is longer than 20 characters, truncate it
     top_labels = row["sorted_labels"][:n_classes]
-    probs_legend = "\n".join([f"{label_name}: {row[label_name]:.2f}" for label_name in top_labels])
-    kdn_legend = f"KDN: {row['kdn']:.2f}\n nbr: {row['kdn_nbr']}"
+    probs_legend = "\n".join(
+        [
+            f"{label_name if len(label_name) <= 20 else label_name[:20] + '...'}: {row[label_name]:.2f}"
+            for label_name in top_labels
+        ]
+    )
+    # kdn_legend = f"KDN: {row['kdn']:.2f}\n nbr: {row['kdn_nbr']}"
     metrics_legend = "\n".join([f"{m}: {row[m]:.2f}" for m in metrics])
 
-    return kdn_legend + "\n" + metrics_legend + "\n" + probs_legend
+    # return kdn_legend + "\n" + metrics_legend + "\n" + probs_legend
+    return metrics_legend + "\n" + probs_legend
 
 
 def visualize_2D_probability_grid(images, probabilities, n_cols):
@@ -77,18 +86,22 @@ def visualize_top_synthetic_metric(images_dataset, results, sort_metric, ascendi
 
 
 def visualize_sample_synthetic_images(
-    synth_dataset, synth_dataset_res, sample_size, sort_metric, display_rgb, n_cols=10
+    synth_dataset, synth_dataset_res, sample_size, sort_metric, display_rgb, n_cols=10, sort=True
 ):
     """Visualize the synthetic images in a grid. If a classifier is provided, also take that into account."""
-    # order dataset by metric and select top sample
-    results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
-
-    # check how many elements have less than half of the max value for the metric (minimize version)
-    mask = synth_dataset_res[sort_metric] <= synth_dataset_res[sort_metric].max() / 2
-    if mask.sum() <= sample_size:
+    if sort:
+        # order dataset by metric and select top sample
         results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
+
+        # check how many elements have less than half of the max value for the metric (minimize version)
+        mask = synth_dataset_res[sort_metric] <= synth_dataset_res[sort_metric].max() / 2
+        if mask.sum() <= sample_size:
+            results = synth_dataset_res.sort_values(by=sort_metric, ascending=False).head(sample_size)
+        else:
+            results = synth_dataset_res[mask].sample(sample_size)
     else:
-        results = synth_dataset_res[mask].sample(sample_size)
+        # get only first 10
+        results = synth_dataset_res.head(sample_size)
 
     # prepare grid
     n_rows = (results.shape[0] + n_cols - 1) // n_cols
@@ -104,7 +117,7 @@ def visualize_sample_synthetic_images(
         else:
             axes[i].imshow(img)
         # calculate label
-        label = format_label(row, 3, [sort_metric])
+        label = format_label(row, 5, [sort_metric])
         axes[i].set_title(label, fontsize=8)
         axes[i].axis("off")
 
@@ -141,34 +154,40 @@ def visualize_metrics_distributions(real_synth_results, metrics):
     return fig_metric
 
 
-def visualize_class_distributions(real_synth_results, top_n):
-    """Plot distributions for real and synthetic datasets per each class."""
-    # top classes
-    top_5_classes = real_synth_results.groupby("pred").size().sort_values(ascending=False).head(top_n)
-    real_synth_results_filter = real_synth_results[real_synth_results["pred"].isin(top_5_classes.index)]
-
-    # probs per class
-    fig_classes, ax_c = plt.subplots(figsize=(8, 1.5 * top_n))
-
-    viz_results_melt = real_synth_results_filter.melt(
-        id_vars="keys", value_vars=top_5_classes.index, var_name="label", value_name="probability"
+def visualize_class_distributions(real_synth_results, classes, n_classes):
+    """Plot distributions for real and synthetic datasets per each selected class vs the sum of all classes."""
+    # sum all probabilities in one class
+    new_classes = classes[:]
+    real_synth_results["other"] = (
+        real_synth_results.drop(columns=new_classes).iloc[:, 2 : n_classes + 2 - len(new_classes)].sum(axis=1)
     )
-    sns.boxplot(
-        data=viz_results_melt,
+    new_classes.append("other")
+
+    # melt classes + other
+    viz_results_melt = real_synth_results.melt(
+        id_vars="keys", value_vars=new_classes, var_name="label", value_name="probability"
+    )
+
+    fig_classes, ax_c = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
+    sns.kdeplot(
+        data=viz_results_melt[viz_results_melt["keys"] == "Real"],
         x="probability",
-        y="label",
-        hue="keys",
-        ax=ax_c,
-        orient="h",
-        hue_order=["Real", "Synthetic"],
-        palette=["red", "blue"],
-        gap=0.1,
-        width=0.5,
-        fill=False,
-        fliersize=1,
+        hue="label",
+        ax=ax_c[0],
     )
-    ax_c.set_title("Class Probabilities Distribution | Real vs Synthetic")
+    ax_c[0].set_title("Real")
+    ax_c[0].set_xlim(-0.1, 1.1)
 
+    sns.kdeplot(
+        data=viz_results_melt[viz_results_melt["keys"] == "Synthetic"],
+        x="probability",
+        hue="label",
+        ax=ax_c[1],
+    )
+    ax_c[1].set_title("Synthetic")
+    ax_c[1].set_xlim(-0.1, 1.1)
+
+    fig_classes.suptitle("Class Probabilities Distribution")
     return fig_classes
 
 
@@ -229,15 +248,85 @@ def visualize_confusion(real_results, synth_results, n_classes, threshold):
     return fig, combined_df
 
 
-def visualize_features_umap(real_features, synth_features):
+def visualize_features_umap(real_features, real_labels, synth_features, guidance_metric):
     """2D UMAP visualization of the features. Returns the figure."""
-    umap = UMAP(n_components=2, random_state=10, n_jobs=1)
+    umap = UMAP(n_components=2, random_state=10)
     real_feats_2d = umap.fit_transform(real_features)
     fake_feats_2d = umap.transform(synth_features)
 
-    fig = plt.figure(figsize=(10, 10))
-    plt.scatter(real_feats_2d[:, 0], real_feats_2d[:, 1], s=3, label=f"Real (n={real_feats_2d.shape[0]})", color="red")
-    plt.scatter(fake_feats_2d[:, 0], fake_feats_2d[:, 1], s=3, label=f"Fake (n={fake_feats_2d.shape[0]})", color="blue")
+    marker_styles = ["o", "s", "^", "D", "v", "P", "*", "X", "H", "+"]
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    unique_labels = np.unique(real_labels)
+    for i, label in enumerate(unique_labels):
+        marker = marker_styles[i % len(marker_styles)]
+        indices = real_labels == label
+        ax.scatter(
+            real_feats_2d[indices, 0],
+            real_feats_2d[indices, 1],
+            marker=marker,
+            label=label,
+            edgecolors="black",  # optional for contrast
+            facecolors="none",  # optional for clarity
+        )
+
+    cmap = sns.cubehelix_palette(as_cmap=True)
+    points = ax.scatter(
+        fake_feats_2d[:, 0], fake_feats_2d[:, 1], c=guidance_metric, label="synthetic", marker=".", alpha=0.8, cmap=cmap
+    )
+    fig.colorbar(points)
+
+    # plt.scatter(real_feats_2d[:, 0], real_feats_2d[:, 1], s=3, label=f"Real (n={real_feats_2d.shape[0]})", color="red")
+    # plt.scatter(fake_feats_2d[:, 0], fake_feats_2d[:, 1], s=3, label=f"Fake (n={fake_feats_2d.shape[0]})", color="blue")
     plt.title("UMAP Features Visualization | Real vs Synthetic")
     plt.legend()
+    return fig
+
+def occlusion_map(clf, image, device, target_info):
+    """Create saliency maps for the given images and classifier"""
+
+    def forward_func(inputs):
+        """Captum-compatible forward function that returns a tensor."""
+        return clf(inputs).logits
+
+    # input image tensor
+    input_tensor = image.unsqueeze(0).to(device)
+    input_tensor.requires_grad = True
+    
+    # normalize original image for visualization
+    orig = input_tensor.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
+    orig = (orig - orig.min()) / (orig.max() - orig.min())
+
+    # create figure of size 1xN where N is number of targets
+    fig, axes = plt.subplots(1, len(target_info)+2, figsize=(4 * len(target_info)+2, 4))
+
+    axes[0].imshow(orig)
+    axes[0].set_title("Original", fontsize=12)
+    axes[0].axis("off")
+
+    attr_maps = []
+
+    for i, target in target_info.iterrows():
+        # compute gradient shap
+        attributions = Occlusion(forward_func).attribute(
+            input_tensor,
+            target=target["idx"],
+            sliding_window_shapes=(3, 8, 8),
+            strides=(3, 4, 4),
+            baselines=0,
+        )
+        attr_maps.append(attributions)
+        # visualization
+        attr_np = attributions.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
+        viz.visualize_image_attr(attr_np, orig, method="blended_heat_map",sign="all", show_colorbar=True, plt_fig_axis=(fig, axes[i+1]))
+        axes[i+1].set_title(f"{target['label']} ({target['prob']:.3f})", fontsize=12)
+
+    # normalize and sum
+    attr_maps = [ attr / np.max(np.abs(attr.detach().cpu().numpy())) for attr in attr_maps]
+    attr_sum = sum(attr_maps)
+    attr_sum_np = attr_sum.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
+    viz.visualize_image_attr(attr_sum_np, orig, method="blended_heat_map",sign="all", show_colorbar=True, plt_fig_axis=(fig, axes[i+2]))
+    axes[i+2].set_title("normalized sum", fontsize=12)
+
     return fig

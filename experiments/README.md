@@ -10,23 +10,25 @@ user-args:
   device: <cuda or cpu>
   seed: <int> # seed for reproducibility
   batch-size: 1 # not yet implemented to generate more than one image at a time
-  save-disk: <boolean> # saves generated images and evaluation results
+  save-metrics-disk: <boolean> # saves evaluation results
+  save-images-disk: <boolean> # saves generated images
   log-plots: <boolean> # saves plots to wandb 
-  display-rgb: True # for RGB images
+  display-rgb: True # for RGB images, default=True
 
 dataset:
   name: <name> # dataset name from HuggingFace
   n_classes: <int> # number of classes that the same has
-  split: <train or test> 
+  split: <train or validation or test> 
   num-images: <int> # sampled images from the dataset
 
 classifier:
   name: <name> # classifier name from HuggingFace
   lib: <transformers, timm> # supported libraries to download classifiers from HuggingFace
+  calibrate: <boolean> # True to calibrate probabilities (recommended)
 
 diffusion:
-  name: <name> # LDM name from HuggingFace
   pipeline: latentguidance 
+  name: <name> # LDM name from HuggingFace
   type: sd
   args:
     num-inference-steps: <int> # number of timesteps (T)
@@ -42,5 +44,5 @@ diffusion:
 evaluation:
   num-images: <int> # number of images to be generated
   viz-sample-size: <int> # number of images to be visualized in wandb
-  certainty-threshold: 0.8 # for visualization purposes (plots shown in wandb)
+  attr-map: <boolean> # display attribution map for first generated image
 ```

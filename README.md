@@ -1,9 +1,7 @@
-# Stress Testing Classifiers around the Decision Boundary with Latent Difusion
+# Stress Testing the Decision Boundaries of Image Classifiers via Latent Difusion
 
 ![License](https://img.shields.io/static/v1?label=license&message=CC-BY-NC-ND-4.0&color=green)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
-
-Code for the paper "*Stress Testing the Decision Boundaries of Image Classifiers via Latent Difusion*".
 
 This framework needs:
 - **image classifier**: should be a deep learning model

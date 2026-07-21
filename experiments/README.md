@@ -10,8 +10,8 @@ user-args:
   device: <cuda or cpu>
   seed: <int> # seed for reproducibility
   batch-size: 1 # not yet implemented to generate more than one image at a time
-  save-metrics-disk: <boolean> # saves evaluation results
-  save-images-disk: <boolean> # saves generated images
+  save-metrics-disk: <boolean> # saves per-image results to $FILESDIR/logs/<run-id>/results_{synthetic,real}.parquet
+  save-images-disk: <boolean> # saves the generated images to $FILESDIR/logs/<run-id>/images_{synth,real}.pt
   log-plots: <boolean> # saves plots to wandb 
   display-rgb: True # for RGB images, default=True
 

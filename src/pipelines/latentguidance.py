@@ -117,6 +117,32 @@ class LatentClassifierGuidance(DiffusionPipeline):
             return self.numpy_to_pil(images_np)
         return images
 
+    def guidance_step(
+        self, latents, t, prompt_emb, step, *, classifier, transformation, labels_idx, guidance_type, alpha
+    ):
+        """Apply one classifier-guidance update to the latents and return them with the metric.
+
+        The classifier arguments are keyword-only to keep the positional signature small.
+        """
+        metric, grad = self.calculate_gradient(
+            classifier, transformation, labels_idx, latents, t, prompt_emb, guidance_type
+        )
+        # weight the metric with our alpha hyperparameter
+        update = grad * alpha
+        update_norm = update.norm()
+
+        # log scalars
+        wandb.log(
+            {
+                "mean-guidance": float(metric),
+                "guidance/update_norm": update_norm.item(),
+                # how far the guidance actually moves the latent, relative to the latent scale
+                "guidance/relative_step": (update_norm / latents.norm()).item(),
+                "_diffusion_step": step,
+            }
+        )
+        return latents + update, metric
+
     @torch.no_grad()
     def __call__(
         self,
@@ -220,15 +246,17 @@ class LatentClassifierGuidance(DiffusionPipeline):
 
             # 3. compute classifier guidance (if frequency and alpha value allows)
             if (guidance_freq != 0) and (i % guidance_freq == 0) and (alpha > 0):
-                metric, grad = self.calculate_gradient(
-                    classifier, transformation, labels_idx, latents, t, prompt_emb, guidance_type
+                latents, metric = self.guidance_step(
+                    latents,
+                    t,
+                    prompt_emb,
+                    i,
+                    classifier=classifier,
+                    transformation=transformation,
+                    labels_idx=labels_idx,
+                    guidance_type=guidance_type,
+                    alpha=alpha,
                 )
-                # weight the metric with our alpha hyperparameter
-                latents += grad * alpha
-
-                # log
-                wandb.log({"mean-guidance": metric})
-                wandb.log({"loss-guidance": grad})
 
             # 4. predict the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_prediction, t, latents).prev_sample

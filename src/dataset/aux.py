@@ -23,7 +23,7 @@ TRANSFORMATIONS = {
     # manual imitation of the default transformation of the pretrained model - tensor option
     "farleyknight-org-username/vit-base-mnist_tensor": T.Compose(
         [
-            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR, antialias=True),
             T.Lambda(lambda x: x.expand(-1, 3, -1, -1) if x.shape[1] == 1 else x),
             T.Lambda(lambda x: (x + 1) / 2),
             T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
@@ -32,24 +32,29 @@ TRANSFORMATIONS = {
     # manual imitation of the default transformation of the pretrained model - tensor option
     "aaraki/vit-base-patch16-224-in21k-finetuned-cifar10_tensor": T.Compose(
         [
-            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR, antialias=True),
             T.Lambda(lambda x: (x + 1) / 2),  # Convert from [-1,1] -> [0,1]
             T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
     ),
     # manual imitation of the default transformation of the pretrained model microsoft/resnet-50 - tensor option
+    # Mirrors ConvNextFeatureExtractor as declared in its preprocessor_config.json
+    # (crop_pct=0.875, size=224, resample=3 -> BICUBIC): resize the shortest edge to
+    # int(224 / 0.875) = 256, then center crop 224. Every op stays differentiable, so the
+    # guidance gradient still flows from the classifier back to the latent.
     "microsoft/resnet-50_tensor": T.Compose(
         [
-            T.Resize(224, interpolation=T.InterpolationMode.BILINEAR),
-            T.CenterCrop(int(224 * 0.875)),  # y
-            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
+            T.Resize(256, interpolation=T.InterpolationMode.BICUBIC, antialias=True),
+            T.CenterCrop(224),
             T.ConvertImageDtype(torch.float32),
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     ),
+    # Mirrors ViTImageProcessor as declared in its preprocessor_config.json (size=224,
+    # image_mean/image_std=0.5, default resample=BILINEAR): squash to exactly 224x224, no crop.
     "google/vit-base-patch16-224_tensor": T.Compose(
         [
-            T.Resize(224, interpolation=T.InterpolationMode.BILINEAR),
+            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR, antialias=True),
             T.ConvertImageDtype(torch.float32),
             T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]

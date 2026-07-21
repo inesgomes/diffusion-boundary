@@ -1,0 +1,57 @@
+# Smoke test -- fast end-to-end run to validate the pipeline
+#
+# What it covers: config loading, classifier load + temperature calibration
+# , pipeline/scheduler setup, generation with KLDB classifier
+# guidance -- i.e. calculate_gradient, the log_softmax-based KLDB loss
+# the gradient normalization and the non-finite gradient logging -- and
+# the VAE decode. num-images: 1 makes the run return right after generation
+# (see stress_test_classifier), skipping the heavy evaluation/feature/FID stage.
+#
+# To also exercise the evaluation + metrics path (KDN needs >= ~12 samples),
+# bump `num-images` in BOTH `dataset` and `evaluation` to e.g. 12 and set
+# log-plots as desired. Set classifier.calibrate to False for the fastest run
+# if you only need to check generation/guidance and not the calibration path.
+
+project: smoke_test
+
+user-args:
+  device: cuda:0
+  seed: 28
+  batch-size: 1
+  save-metrics-disk: False
+  save-images-disk: False
+  log-plots: False
+  display-rgb: True
+
+dataset:
+  name: ILSVRC/imagenet-1k
+  n_classes: 1000
+  split: train
+  num-images: 1
+
+classifier:
+  name: microsoft/resnet-50  # google/vit-base-patch16-224
+  lib: transformers
+  calibrate: True
+
+diffusion:
+  pipeline: latentguidance
+  name: CompVis/stable-diffusion-v1-4
+  type: sd
+  args:
+    num-inference-steps: 10   # few steps: images are ugly, we only check it runs
+    prompt-strategy: single
+    classes:
+      - leopard, Panthera pardus
+      - jaguar, panther, Panthera onca, Felis onca
+    guidance: kldb
+    alpha: 0.01
+    guidance-freq: 2          # triggers guidance at steps 2,4,6,8,10
+    guidance-scale: 7.5
+    guidance-rescale: 0.7
+    negative-prompt: ""
+
+evaluation:
+  num-images: 1
+  viz-sample-size: 2
+  attr-map: False

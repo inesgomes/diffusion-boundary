@@ -133,20 +133,23 @@ def compute_cross_entropy_loss(probs, logits):
     return F.cross_entropy(logits, probs, reduction="none")
 
 
-def compute_probs_kl_divergence(probs, labels_idx):
+def compute_probs_kl_divergence(probs, labels_idx, logits=None):
     """Compute the KL diveregence between the target and the probs. The target is having equal probabilities for the target classes and zero to the remaining ones.
 
     Goal: minimize
     """
-    target = torch.zeros(*probs.shape, device=probs.device)
+    # log-probabilities: prefer log_softmax(logits) over probs.log() for numerical stability.
+    log_probs = F.log_softmax(logits, dim=1) if logits is not None else probs.log()
+
+    target = torch.zeros_like(log_probs)
     for idx in labels_idx:
         target[:, idx] = 1 / len(labels_idx)
     target = torch.clip(target, min=1e-10)
 
-    return -F.kl_div(probs.log(), target, reduction="none").sum(dim=1)
+    return -F.kl_div(log_probs, target, reduction="none").sum(dim=1)
 
 
-def compute_probs_kl_divergence_scaled(probs, labels_idx):
+def compute_probs_kl_divergence_scaled(probs, labels_idx, logits=None):
     """Compute the KL diveregence between the target and the probs. The target is having equal probabilities for the target classes and zero to the remaining ones.
 
     Goal: minimize
@@ -157,13 +160,16 @@ def compute_probs_kl_divergence_scaled(probs, labels_idx):
 
     gamma = (torch.log(torch.tensor(float(k))) / torch.log(torch.tensor(float(C)))) / 2.0
 
-    target = torch.zeros(*probs.shape, device=probs.device)
+    # log-probabilities via log_softmax for numerical stability (see compute_probs_kl_divergence)
+    log_probs = F.log_softmax(logits, dim=1) if logits is not None else probs.log()
+
+    target = torch.zeros_like(log_probs)
     for idx in labels_idx:
         target[:, idx] = 1 / len(labels_idx)
     target = torch.clip(target, min=eps)
 
     # kl divergence
-    kl = F.kl_div(probs.log(), target, reduction="none").sum(dim=1)
+    kl = F.kl_div(log_probs, target, reduction="none").sum(dim=1)
     kl_scaled = (kl + eps) ** gamma
     return -kl_scaled
 
@@ -246,7 +252,10 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
         return loss_functions[metric](probs, logits) if logits is not None else torch.tensor(float("nan"))
 
     if metric in target_functions:
-        return target_functions[metric](probs, labels_idx) if labels_idx is not None else torch.tensor(float("nan"))
+        if labels_idx is None:
+            return torch.tensor(float("nan"))
+        # pass logits so KLDB can use log_softmax (stable) instead of softmax().log()
+        return target_functions[metric](probs, labels_idx, logits=logits)
 
     if metric in uncertainty_functions:
         return uncertainty_functions[metric](probs_dropout) if probs_dropout is not None else torch.tensor(float("nan"))

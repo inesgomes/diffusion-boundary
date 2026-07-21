@@ -84,15 +84,18 @@ class LatentClassifierGuidance(DiffusionPipeline):
 
         # norm gradients to L2 norm (according to https://arxiv.org/pdf/2310.00158)
         # beaware of exploding gradients
-        if torch.isfinite(grad).all():
-            norm = grad.norm().detach()
+        grad_finite = bool(torch.isfinite(grad).all())
+        norm = grad.norm().detach() if grad_finite else torch.tensor(float("nan"), device=grad.device)
+        # Log the gradient norm and a non-finite flag on EVERY guidance step.
+        wandb.log({"guidance/grad_norm": norm.item(), "guidance/nonfinite_grad": int(not grad_finite)})
+        if grad_finite:
             if norm > 0:
                 normalized_grad = grad / (norm + 1e-10) * latents.norm().detach()
             else:
-                print("Warning: no normalization")
+                print("Warning: gradient is all zeros, skipping normalization.")
                 normalized_grad = grad  # return as-is if all zeros
         else:
-            print("Warning: grad contains NaN or Inf, skipping normalization.")
+            print("Warning: grad contains NaN or Inf, skipping guidance for this step.")
             normalized_grad = torch.zeros_like(grad)
 
         # another option: norm gradients to L inf norm (according to https://arxiv.org/pdf/2203.17260) - alpha [0, 1]

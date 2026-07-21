@@ -19,4 +19,4 @@ class ClassifierFactory:
             return PretrainedOther(model_name, device)
         if lib_name == "local":
             return LocalClassifier(model_name, device)
-        return ValueError(f"Library {lib_name} not implemented.")
+        raise ValueError(f"Library {lib_name} not implemented.")

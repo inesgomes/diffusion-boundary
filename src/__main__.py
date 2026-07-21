@@ -89,11 +89,13 @@ def create_classifier(classifier_config, dataset_config, default_configs):
         # calibrate classifier if needed
         if classifier_config["calibrate"]:
             # prepare calibration dataset
+            # Temperature scaling must be fit over the FULL class distribution
+            n_calib = max(300, dataset_config["n_classes"])
             calib_images, calib_labels, calib_class_labels = get_tst_dataset(
                 dataset_config["name"],
                 "validation",
-                300,  # I just need 300 images for calibration
-                dataset_config["subset"],
+                n_calib,
+                None,  # full distribution, not dataset_config["subset"]
             )
             calib_dataset = DatasetFactory.dataset_from_lib(
                 classifier_config["lib"],
@@ -106,6 +108,9 @@ def create_classifier(classifier_config, dataset_config, default_configs):
             calib_dataset.set_labels(calib_labels)
             calibloader = DataLoader(calib_dataset, batch_size=10, shuffle=False, num_workers=6)
             classifier.calibrate(calibloader)
+            # persist the fitted temperature so reported KLDB/entropy numbers are reproducible
+            if classifier.scaler is not None and wandb.run is not None:
+                wandb.run.summary["temperature"] = classifier.scaler.temperature.item()
     return classifier
 
 

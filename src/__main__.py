@@ -10,6 +10,7 @@ import torch
 import wandb
 from diffusers import (
     DDIMPipeline,
+    DDIMScheduler,
     DDPMPipeline,
     DiffusionPipeline,
     LMSDiscreteScheduler,
@@ -114,7 +115,32 @@ def create_classifier(classifier_config, dataset_config, default_configs):
     return classifier
 
 
-def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=None, device="cpu"):
+def create_scheduler(scheduler_name, scheduler_config):
+    """Build the scheduler selected in the configuration file, from the pipeline default config.
+
+    Parameters:
+        scheduler_name (str): "klms" (k-LMS, i.e. LMS with Karras sigmas) or "ddim".
+        scheduler_config: The config of the scheduler shipped with the pretrained pipeline.
+
+    Returns:
+        SchedulerMixin: The configured scheduler.
+    """
+    # shared options: less noisy (but blurrier) images; both together creates error
+    common = {
+        "rescale_betas_zero_snr": True,
+        "timestep_spacing": "trailing",
+        "prediction_type": "epsilon",
+    }
+    if scheduler_name == "ddim":
+        # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
+        return DDIMScheduler.from_config(scheduler_config, **common)
+    if scheduler_name == "klms":
+        # use_karras_sigmas makes sure we are using the k-lms version
+        return LMSDiscreteScheduler.from_config(scheduler_config, use_karras_sigmas=True, **common)
+    raise ValueError(f"Scheduler {scheduler_name} not recognized.")
+
+
+def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=None, device="cpu", scheduler="klms"):
     """
     General method to load pre-trained diffusion pipelines.
 
@@ -123,6 +149,7 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
         model (str): Pretrained model identifier.
         pipeline (str or None): Custom pipeline file path (if any).
         device (str): Device to load the pipeline on ("cpu" or "cuda").
+        scheduler (str): Scheduler to use for the "sd" pipelines ("klms" or "ddim").
 
     Returns:
         DiffusionPipeline: The loaded pipeline.
@@ -154,22 +181,8 @@ def create_pipeline(diff_type="ddpm", model="google/ddpm-cifar10-32", pipeline=N
             variant="fp16",
             cache_dir=os.getenv("HF_MODELS_CACHE"),
         ).to(device)
-        # k-LMS scheduler
-        pipe.scheduler = LMSDiscreteScheduler.from_config(
-            pipe.scheduler.config,
-            rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
-            timestep_spacing="trailing",  # both together creates error
-            prediction_type="epsilon",
-            use_karras_sigmas=True,  # make sure we are using k-lms version
-        )
-        # from: https://huggingface.co/docs/diffusers/api/schedulers/ddim
-        # DDIM scheduler
-        # pipe.scheduler = DDIMScheduler.from_config(
-        #    pipe.scheduler.config,
-        #    rescale_betas_zero_snr=True,  # create images less noisy but nore blurry
-        #    timestep_spacing="trailing",  # both together creates error
-        #    prediction_type="epsilon",
-        # )
+        # scheduler selected in the configuration file (k-LMS or DDIM)
+        pipe.scheduler = create_scheduler(scheduler, pipe.scheduler.config)
         pipe.enable_attention_slicing()
         return pipe
 
@@ -265,7 +278,11 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
     """Generate images using the diffusion pipeline described in the config file."""
     # get diffusion pipeline
     pipe = create_pipeline(
-        diffusion_settings["type"], diffusion_settings["name"], diffusion_settings["pipeline"], device
+        diffusion_settings["type"],
+        diffusion_settings["name"],
+        diffusion_settings["pipeline"],
+        device,
+        diffusion_settings["scheduler"],
     )
     # get arguments for the pipeline
     args = create_arguments(diffusion_settings["pipeline"], classifier, dataset, diffusion_settings["args"])
@@ -578,33 +595,36 @@ def main(configuration):
     alpha = diffusion_config["args"]["alpha"]
     guidance_scale = diffusion_config["args"]["guidance-scale"]
     guidance_freq = diffusion_config["args"]["guidance-freq"]
+    scheduler = diffusion_config["scheduler"]
 
     # the group will be a timestamp that this main started, so that we can join multiple runs
     group_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     i = 1
-    max_i = len(guidance_metric) * len(alpha) * len(guidance_scale) * len(guidance_freq)
-    for guidance_metric_value in guidance_metric:
-        for alpha_value in alpha:
-            for guidance_scale_value in guidance_scale:
-                for guidance_freq_value in guidance_freq:
-                    diffusion_config["args"]["guidance"] = guidance_metric_value
-                    diffusion_config["args"]["alpha"] = alpha_value
-                    diffusion_config["args"]["guidance-scale"] = guidance_scale_value
-                    diffusion_config["args"]["guidance-freq"] = guidance_freq_value
+    max_i = len(guidance_metric) * len(alpha) * len(guidance_scale) * len(guidance_freq) * len(scheduler)
+    for scheduler_value in scheduler:
+        for guidance_metric_value in guidance_metric:
+            for alpha_value in alpha:
+                for guidance_scale_value in guidance_scale:
+                    for guidance_freq_value in guidance_freq:
+                        diffusion_config["scheduler"] = scheduler_value
+                        diffusion_config["args"]["guidance"] = guidance_metric_value
+                        diffusion_config["args"]["alpha"] = alpha_value
+                        diffusion_config["args"]["guidance-scale"] = guidance_scale_value
+                        diffusion_config["args"]["guidance-freq"] = guidance_freq_value
 
-                    # apply stress testing
-                    print(f"Starting stress test {i}/{max_i}...")
-                    stress_test_classifier(
-                        configuration["project"],
-                        group_name,
-                        configuration["user-args"],
-                        configuration["dataset"],
-                        configuration["classifier"],
-                        diffusion_config,
-                        configuration["evaluation"],
-                    )
-                    i += 1
+                        # apply stress testing
+                        print(f"Starting stress test {i}/{max_i}...")
+                        stress_test_classifier(
+                            configuration["project"],
+                            group_name,
+                            configuration["user-args"],
+                            configuration["dataset"],
+                            configuration["classifier"],
+                            diffusion_config,
+                            configuration["evaluation"],
+                        )
+                        i += 1
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 import wandb
-from diffusers import DiffusionPipeline, ImagePipelineOutput
+from diffusers import DDIMScheduler, DiffusionPipeline, ImagePipelineOutput
 
 from src.classifier.metrics import compute_metric
 
@@ -50,6 +50,12 @@ class LatentClassifierGuidance(DiffusionPipeline):
     @torch.enable_grad()
     def calculate_gradient(self, classifier, transformation, labels_idx, latents, t, prompt_embd, guidance_type):
         """Calculate the gradient of the selected metric with respect to the images."""
+        # with rescale_betas_zero_snr + trailing spacing, the first DDIM timestep has alphas_cumprod == 0:
+        # the sample is pure noise, so x_0 (and therefore the guidance) is undefined there
+        if isinstance(self.scheduler, DDIMScheduler) and self.scheduler.alphas_cumprod[int(t)] <= 0:
+            print("Warning: x_0 is undefined at this timestep (zero SNR), skipping guidance for this step.")
+            return None, torch.zeros_like(latents)
+
         # start the gradient calculation
         latents = latents.clone().detach().requires_grad_(True).to(self.device)
 
@@ -57,14 +63,16 @@ class LatentClassifierGuidance(DiffusionPipeline):
         latent_scaled = self.scheduler.scale_model_input(latents, t)
         noise_prediction = self.unet(latent_scaled, t, encoder_hidden_states=prompt_embd).sample
 
-        # calculate prediction for the original sample (k-LMS)
-        sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
-        latents_0 = latents - sigma_t * noise_prediction
-
-        # calculate prediction for the original sample (DDIM)
-        # alpha_prod_t = self.scheduler.alphas_cumprod[t]
-        # beta_prod_t = 1 - alpha_prod_t
-        # latents_0 = (latents - beta_prod_t ** (0.5) * noise_prediction) / alpha_prod_t ** (0.5)
+        # calculate prediction for the original sample, as parameterized by the scheduler in use
+        if isinstance(self.scheduler, DDIMScheduler):
+            # DDIM works with alphas: x_0 = (x_t - sqrt(1 - a_t) * eps) / sqrt(a_t)
+            alpha_prod_t = self.scheduler.alphas_cumprod[int(t)].to(device=latents.device, dtype=latents.dtype)
+            beta_prod_t = 1 - alpha_prod_t
+            latents_0 = (latents - beta_prod_t ** (0.5) * noise_prediction) / alpha_prod_t ** (0.5)
+        else:
+            # k-LMS works with sigmas: x_0 = x_t - sigma_t * eps
+            sigma_t = self.scheduler.sigmas[self.scheduler.step_index]
+            latents_0 = latents - sigma_t * noise_prediction
 
         # decode the latents to images and transform to the classifier format
         images = self.decode_latents(latents_0)
@@ -127,6 +135,10 @@ class LatentClassifierGuidance(DiffusionPipeline):
         metric, grad = self.calculate_gradient(
             classifier, transformation, labels_idx, latents, t, prompt_emb, guidance_type
         )
+        # no metric means the guidance is undefined at this step, so the latents are left untouched
+        if metric is None:
+            return latents, None
+
         # weight the metric with our alpha hyperparameter
         update = grad * alpha
         update_norm = update.norm()
@@ -222,7 +234,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
             dtype=text_emb.dtype,
         ).to(self.device)
 
-        # the k-lms scheduler needs to multiply the latents by its sigma values
+        # the k-lms scheduler needs to multiply the latents by its sigma values (no-op for DDIM, where it is 1.0)
         latents = latents * self.scheduler.init_noise_sigma
 
         # set step values

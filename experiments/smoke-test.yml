@@ -1,7 +1,7 @@
 # Smoke test -- fast end-to-end run to validate the pipeline
 #
 # What it covers: config loading, classifier load + temperature calibration
-# , pipeline/scheduler setup, generation with KLDB classifier
+# , pipeline/scheduler setup (both k-LMS and DDIM), generation with KLDB classifier
 # guidance -- i.e. calculate_gradient, the log_softmax-based KLDB loss
 # the gradient normalization and the non-finite gradient logging -- and
 # the VAE decode. num-images: 1 makes the run return right after generation
@@ -30,7 +30,7 @@ dataset:
   num-images: 12
 
 classifier:
-  name: microsoft/resnet-50  # google/vit-base-patch16-224
+  name: google/vit-base-patch16-224 # microsoft/resnet-50
   lib: transformers
   calibrate: True
 
@@ -38,15 +38,16 @@ diffusion:
   pipeline: latentguidance
   name: CompVis/stable-diffusion-v1-4
   type: sd
+  scheduler: klms            # klms, ddim -- a list runs one stress test per scheduler
   args:
     num-inference-steps: 10   # few steps: images are ugly, we only check it runs
     prompt-strategy: single
     classes:
-      - leopard, Panthera pardus
-      - jaguar, panther, Panthera onca, Felis onca
+      - golden retriever
+      - Labrador retriever
     guidance: kldb
     alpha: 0.01
-    guidance-freq: 2          # triggers guidance at steps 2,4,6,8,10
+    guidance-freq: 2       
     guidance-scale: 7.5
     guidance-rescale: 0.7
     negative-prompt: ""

@@ -7,6 +7,9 @@ from datetime import datetime
 
 import yaml
 
+# schedulers that can be selected in the configuration file (only used by the "sd" pipelines)
+SCHEDULERS = ("klms", "ddim")
+
 
 def generate_run_id():
     """Generate a unique run id based on the current time."""
@@ -85,6 +88,8 @@ def load_configurations(config_path):
         config["diffusion"]["pipeline"] = None
     if "type" not in config["diffusion"]:
         config["diffusion"]["type"] = None
+    if "scheduler" not in config["diffusion"]:
+        config["diffusion"]["scheduler"] = "klms"
     if "guidance" not in config["diffusion"]["args"]:
         config["diffusion"]["args"]["guidance"] = "noguidance"
     if "negative-prompt" not in config["diffusion"]["args"]:
@@ -99,6 +104,14 @@ def load_configurations(config_path):
         config["diffusion"]["args"]["guidance-scale"] = [config["diffusion"]["args"]["guidance-scale"]]
     if not isinstance(config["diffusion"]["args"]["guidance-freq"], list):
         config["diffusion"]["args"]["guidance-freq"] = [config["diffusion"]["args"]["guidance-freq"]]
+    if not isinstance(config["diffusion"]["scheduler"], list):
+        config["diffusion"]["scheduler"] = [config["diffusion"]["scheduler"]]
+
+    # the scheduler drives the x_0 prediction used by the guidance, so only known ones are accepted
+    unknown = [name for name in config["diffusion"]["scheduler"] if name not in SCHEDULERS]
+    if unknown:
+        print(f"Unknown scheduler(s) {unknown}. Valid options are {list(SCHEDULERS)}.")
+        sys.exit(1)
 
     # set default values for missing configuration parameters
     config = set_configuration_default_values(config)

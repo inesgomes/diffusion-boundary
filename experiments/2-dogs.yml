@@ -1,12 +1,12 @@
-project: 20251120_text_image_diffusion
+project: 20260722_text_image_diffusion
 
 user-args: 
   device: cuda:1
   seed: 28
   batch-size: 1
-  save-metrics-disk: True
+  save-metrics-disk: False
   save-images-disk: False
-  log-plots: True
+  log-plots: False
 
 dataset:
   name: ILSVRC/imagenet-1k
@@ -23,6 +23,9 @@ diffusion:
   pipeline: latentguidance
   name: CompVis/stable-diffusion-v1-4
   type: sd
+  scheduler: 
+    - klms 
+    - ddim
   args:
     num-inference-steps: 40
     prompt-strategy: single # and 
@@ -38,11 +41,11 @@ diffusion:
       # - 0.05
       # - 0.08
       # - 0.1
-    guidance-freq: 5
-      # - 1
+    guidance-freq:
+      - 1
       # - 3
-      # - 5
-      # - 10
+      - 5
+      - 10
     # beta
     guidance-scale: 7.5
       # - 4
@@ -53,6 +56,6 @@ diffusion:
     negative-prompt: blurry, deformed, low quality, watermark, text, extra limbs, ugly # if not specified, it is empty 
 
 evaluation:
-  num-images: 2500
-  viz-sample-size: 10
+  num-images: 500
+  viz-sample-size: 5
   attr-map: False

@@ -321,13 +321,18 @@ def calculate_evaluation_metrics(real_features, fake_features, synthetic_data_re
     }
 
     # add average and median of selected metrics
-    mean_values = synthetic_data_res[metrics].mean()
+    # mean_values = synthetic_data_res[metrics].mean()
+    # sd_values = synthetic_data_res[metrics].std()
     median_values = synthetic_data_res[metrics].median()
-    sd_values = synthetic_data_res[metrics].std()
+    q1_values = synthetic_data_res[metrics].quantile(0.25)
+    q3_values = synthetic_data_res[metrics].quantile(0.75)
 
     for m in metrics:
-        results_dict[f"{m}_avg"] = mean_values[m]
+        # results_dict[f"{m}_avg"] = mean_values[m]
+        # results_dict[f"{m}_std"] = sd_values[m]
         results_dict[f"{m}_median"] = median_values[m]
-        results_dict[f"{m}_std"] = sd_values[m]
+        results_dict[f"{m}_iqr"] = q3_values[m] - q1_values[m]
+        results_dict[f"{m}_25"] = q1_values[m]
+        results_dict[f"{m}_75"] = q3_values[m]
 
     return results_dict

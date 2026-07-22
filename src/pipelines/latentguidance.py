@@ -93,15 +93,20 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # norm gradients to L2 norm (according to https://arxiv.org/pdf/2310.00158)
         # beaware of exploding gradients
         grad_finite = bool(torch.isfinite(grad).all())
-        norm = grad.norm().detach() if grad_finite else torch.tensor(float("nan"), device=grad.device)
+        # normalize per sample, over every dimension except the batch, so that samples in a
+        # batch are not coupled through a single shared norm
+        sample_dims = list(range(1, grad.ndim))
+        norm = torch.linalg.vector_norm(grad, dim=sample_dims, keepdim=True).detach()
         # Log the gradient norm and a non-finite flag on EVERY guidance step.
-        wandb.log({"guidance/grad_norm": norm.item(), "guidance/nonfinite_grad": int(not grad_finite)})
+        grad_norm_log = norm.mean().item() if grad_finite else float("nan")
+        wandb.log({"guidance/grad_norm": grad_norm_log, "guidance/nonfinite_grad": int(not grad_finite)})
         if grad_finite:
-            if norm > 0:
-                normalized_grad = grad / (norm + 1e-10) * latents.norm().detach()
-            else:
-                print("Warning: gradient is all zeros, skipping normalization.")
-                normalized_grad = grad  # return as-is if all zeros
+            if not bool((norm > 0).all()):
+                print("Warning: gradient is all zeros for at least one sample, skipping its normalization.")
+            # no epsilon: a scalar factor in the loss then cancels exactly. Dividing by 1 where the
+            # norm is zero leaves that sample's gradient (already all zeros) untouched.
+            denominator = torch.where(norm > 0, norm, torch.ones_like(norm))
+            normalized_grad = grad / denominator * latents.norm(dim=sample_dims, keepdim=True).detach()
         else:
             print("Warning: grad contains NaN or Inf, skipping guidance for this step.")
             normalized_grad = torch.zeros_like(grad)

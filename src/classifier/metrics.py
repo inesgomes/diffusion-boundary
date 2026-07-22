@@ -185,7 +185,7 @@ def compute_gaussian_loss(probs, logits):
     return F.gaussian_nll_loss(logits, target, var, reduction="none")
 
 
-def compute_ideal_gaussian_loss(probs, labels_idx):
+def compute_ideal_gaussian_loss(probs, labels_idx, logits=None):  # pylint: disable=unused-argument
     """Calculate the gaussian loss when comparing to an ideal value (that is our target).
 
     Goal: minimize

@@ -34,18 +34,18 @@ diffusion:
       - Labrador retriever
     guidance: kldb # entropy
     # alpha
-    alpha: 0 #0.01 
+    alpha: 0.01 
       # - 0
       # - 0.01
       # - 0.03
       # - 0.05
       # - 0.08
       # - 0.1
-    guidance-freq: 1
-      # - 1
+    guidance-freq:
+      - 10
+      - 5
       # - 3
-      # - 5
-      # - 10
+      - 1
     # beta
     guidance-scale: 7.5
       # - 4

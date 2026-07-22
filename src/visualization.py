@@ -105,8 +105,11 @@ def visualize_sample_synthetic_images(
         results = synth_dataset_res.head(sample_size)
 
     # prepare grid
+    # each title holds the sort metric plus the top 5 class probabilities
+    n_title_lines = 6
     n_rows = (results.shape[0] + n_cols - 1) // n_cols
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, 3 * n_rows))
+    row_height = 3 + n_title_lines * 0.16
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(2.5 * n_cols, row_height * n_rows), layout="constrained")
     axes = axes.flatten()
 
     synth_dataset.set_use_transformation("NONE")

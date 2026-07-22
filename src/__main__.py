@@ -125,9 +125,12 @@ def create_scheduler(scheduler_name, scheduler_config):
     Returns:
         SchedulerMixin: The configured scheduler.
     """
-    # shared options: less noisy (but blurrier) images; both together creates error
+    # NOTE: do NOT set rescale_betas_zero_snr here. It only makes sense for v_prediction models
+    # (Lin et al., https://arxiv.org/abs/2305.08891) and SD 1.x is epsilon-trained. LMSDiscreteScheduler
+    # does not even accept the argument (from_config silently drops it), but DDIMScheduler does: it makes
+    # alphas_cumprod[999] == 0 and, with trailing spacing, 999 is the *first* timestep, so the very first
+    # DDIM step divides by sqrt(0) -> NaN latents -> pure black images.
     common = {
-        "rescale_betas_zero_snr": True,
         "timestep_spacing": "trailing",
         "prediction_type": "epsilon",
     }

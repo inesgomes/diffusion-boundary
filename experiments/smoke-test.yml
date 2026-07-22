@@ -1,16 +1,4 @@
-# Smoke test -- fast end-to-end run to validate the pipeline
-#
-# What it covers: config loading, classifier load + temperature calibration
-# , pipeline/scheduler setup (both k-LMS and DDIM), generation with KLDB classifier
-# guidance -- i.e. calculate_gradient, the log_softmax-based KLDB loss
-# the gradient normalization and the non-finite gradient logging -- and
-# the VAE decode. num-images: 1 makes the run return right after generation
-# (see stress_test_classifier), skipping the heavy evaluation/feature/FID stage.
-#
-# To also exercise the evaluation + metrics path (KDN needs >= ~12 samples),
-# bump `num-images` in BOTH `dataset` and `evaluation` to e.g. 12 and set
-# log-plots as desired. Set classifier.calibrate to False for the fastest run
-# if you only need to check generation/guidance and not the calibration path.
+# Smoke test: fast end-to-end run to validate the pipeline
 
 project: smoke_test
 
@@ -21,7 +9,6 @@ user-args:
   save-metrics-disk: False
   save-images-disk: False
   log-plots: False
-  display-rgb: True
 
 dataset:
   name: ILSVRC/imagenet-1k
@@ -38,9 +25,11 @@ diffusion:
   pipeline: latentguidance
   name: CompVis/stable-diffusion-v1-4
   type: sd
-  scheduler: klms            # klms, ddim -- a list runs one stress test per scheduler
+  scheduler: # klms, ddim
+   - klms            
+   - ddim
   args:
-    num-inference-steps: 10   # few steps: images are ugly, we only check it runs
+    num-inference-steps: 10   # few steps: images are ugly
     prompt-strategy: single
     classes:
       - golden retriever
@@ -55,4 +44,4 @@ diffusion:
 evaluation:
   num-images: 12
   viz-sample-size: 2
-  attr-map: True
+  attr-map: False

@@ -50,12 +50,6 @@ class LatentClassifierGuidance(DiffusionPipeline):
     @torch.enable_grad()
     def calculate_gradient(self, classifier, transformation, labels_idx, latents, t, prompt_embd, guidance_type):
         """Calculate the gradient of the selected metric with respect to the images."""
-        # with rescale_betas_zero_snr + trailing spacing, the first DDIM timestep has alphas_cumprod == 0:
-        # the sample is pure noise, so x_0 (and therefore the guidance) is undefined there
-        if isinstance(self.scheduler, DDIMScheduler) and self.scheduler.alphas_cumprod[int(t)] <= 0:
-            print("Warning: x_0 is undefined at this timestep (zero SNR), skipping guidance for this step.")
-            return None, torch.zeros_like(latents)
-
         # start the gradient calculation
         latents = latents.clone().detach().requires_grad_(True).to(self.device)
 
@@ -106,7 +100,8 @@ class LatentClassifierGuidance(DiffusionPipeline):
             # no epsilon: a scalar factor in the loss then cancels exactly. Dividing by 1 where the
             # norm is zero leaves that sample's gradient (already all zeros) untouched.
             denominator = torch.where(norm > 0, norm, torch.ones_like(norm))
-            normalized_grad = grad / denominator * latents.norm(dim=sample_dims, keepdim=True).detach()
+            latents_norm = torch.linalg.vector_norm(latents, dim=sample_dims, keepdim=True).detach()
+            normalized_grad = grad / denominator * latents_norm
         else:
             print("Warning: grad contains NaN or Inf, skipping guidance for this step.")
             normalized_grad = torch.zeros_like(grad)

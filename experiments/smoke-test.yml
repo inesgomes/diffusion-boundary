@@ -27,7 +27,7 @@ dataset:
   name: ILSVRC/imagenet-1k
   n_classes: 1000
   split: train
-  num-images: 1
+  num-images: 12
 
 classifier:
   name: microsoft/resnet-50  # google/vit-base-patch16-224
@@ -52,6 +52,6 @@ diffusion:
     negative-prompt: ""
 
 evaluation:
-  num-images: 1
+  num-images: 12
   viz-sample-size: 2
-  attr-map: False
+  attr-map: True

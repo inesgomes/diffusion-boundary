@@ -6,12 +6,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from captum.attr import Occlusion
+from captum.attr import visualization as viz
 from PIL import Image
 from umap import UMAP
 
+from src.classifier.base import extract_logits
 from src.evaluation import compute_classes_confusion
-from captum.attr import Occlusion
-from captum.attr import visualization as viz
 
 
 def format_label(row, n_classes: int, metrics: list):
@@ -283,23 +284,24 @@ def visualize_features_umap(real_features, real_labels, synth_features, guidance
     plt.legend()
     return fig
 
+
 def occlusion_map(clf, image, device, target_info):
-    """Create saliency maps for the given images and classifier"""
+    """Create saliency maps for the given images and classifier."""
 
     def forward_func(inputs):
         """Captum-compatible forward function that returns a tensor."""
-        return clf(inputs).logits
+        return extract_logits(clf(inputs))
 
     # input image tensor
     input_tensor = image.unsqueeze(0).to(device)
     input_tensor.requires_grad = True
-    
+
     # normalize original image for visualization
     orig = input_tensor.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
     orig = (orig - orig.min()) / (orig.max() - orig.min())
 
     # create figure of size 1xN where N is number of targets
-    fig, axes = plt.subplots(1, len(target_info)+2, figsize=(4 * len(target_info)+2, 4))
+    fig, axes = plt.subplots(1, len(target_info) + 2, figsize=(4 * len(target_info) + 2, 4))
 
     axes[0].imshow(orig)
     axes[0].set_title("Original", fontsize=12)
@@ -319,14 +321,20 @@ def occlusion_map(clf, image, device, target_info):
         attr_maps.append(attributions)
         # visualization
         attr_np = attributions.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
-        viz.visualize_image_attr(attr_np, orig, method="blended_heat_map",sign="all", show_colorbar=True, plt_fig_axis=(fig, axes[i+1]))
-        axes[i+1].set_title(f"{target['label']} ({target['prob']:.3f})", fontsize=12)
+        viz.visualize_image_attr(
+            attr_np, orig, method="blended_heat_map", sign="all", show_colorbar=True, plt_fig_axis=(fig, axes[i + 1])
+        )
+        axes[i + 1].set_title(f"{target['label']} ({target['prob']:.3f})", fontsize=12)
 
     # normalize and sum
-    attr_maps = [ attr / np.max(np.abs(attr.detach().cpu().numpy())) for attr in attr_maps]
+    attr_maps = [attr / np.max(np.abs(attr.detach().cpu().numpy())) for attr in attr_maps]
     attr_sum = sum(attr_maps)
     attr_sum_np = attr_sum.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
-    viz.visualize_image_attr(attr_sum_np, orig, method="blended_heat_map",sign="all", show_colorbar=True, plt_fig_axis=(fig, axes[i+2]))
-    axes[i+2].set_title("normalized sum", fontsize=12)
+    # last axis, after axes[0] (original image) and the one axis per target
+    sum_ax = axes[len(target_info) + 1]
+    viz.visualize_image_attr(
+        attr_sum_np, orig, method="blended_heat_map", sign="all", show_colorbar=True, plt_fig_axis=(fig, sum_ax)
+    )
+    sum_ax.set_title("normalized sum", fontsize=12)
 
     return fig

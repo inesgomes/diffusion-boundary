@@ -6,6 +6,22 @@ from torch.nn import Dropout, Module, Parameter
 from tqdm import tqdm
 
 
+def extract_logits(output):
+    """Return the logits tensor from a model output, whatever library the model comes from.
+
+    Transformers models wrap the logits in an output object, while timm and locally trained
+    models return the logits tensor directly.
+    """
+    if hasattr(output, "logits"):
+        return output.logits
+    if isinstance(output, torch.Tensor):
+        return output
+    raise TypeError(
+        f"Unsupported model output type '{type(output).__name__}': expected a torch.Tensor "
+        "or an object exposing a .logits attribute."
+    )
+
+
 class TemperatureScaler(Module):
     """A temperature scaler module for calibrating model logits."""
 
@@ -67,7 +83,7 @@ class BaseClassifier:
             for batch_images, batch_labels in tqdm(dataloader, desc="Optimizing temperature scaler"):
                 batch_images = batch_images.to(self.device)
                 batch_labels = batch_labels.to(self.device)
-                logits = self.model(batch_images).logits
+                logits = extract_logits(self.model(batch_images))
                 all_logits.append(logits)
                 all_labels.append(batch_labels)
 

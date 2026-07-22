@@ -168,7 +168,8 @@ class LatentClassifierGuidance(DiffusionPipeline):
         prompt = kwargs.get("prompt", None)
         negative_prompt = kwargs.get("negative_prompt", "")
         guidance_scale = kwargs.get("guidance_scale", 1.0)
-        guidance_rescale = kwargs.get("guidance_rescale", 1.0)
+        # 0.0 disables the CFG rescaling (Diffusers convention); the experiments use 0.7 (Lin et al.)
+        guidance_rescale = kwargs.get("guidance_rescale", 0.0)
         vae_scale_factor = 8
 
         # specific for my implementation

@@ -8,7 +8,7 @@ from torch import nn
 from torch.nn import functional as F
 from transformers import AutoModelForImageClassification
 
-from .base import BaseClassifier
+from .base import BaseClassifier, extract_logits
 from .cnn import CNN
 
 
@@ -81,7 +81,7 @@ class PretrainedTransformer(BaseClassifier):
 
     def predict(self, tensor_images):
         """Return the logits of the model for the given images."""
-        logits = self.model(tensor_images).logits
+        logits = extract_logits(self.model(tensor_images))
         if self.scaler is not None:
             logits = self.scaler(logits)
         probs = F.softmax(logits, dim=1)

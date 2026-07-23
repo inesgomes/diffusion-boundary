@@ -152,6 +152,10 @@ def prepare_dataset_results(dataset, classifier, target, batch_size, device, num
     # compute dataset predictions
     probs, logits, labels = compute_probabilities(classifier, loader, device)
 
+    # the logit margins are read off the model's own logits, so that they stay independent of
+    # the temperature the calibration fitted
+    raw_logits = classifier.raw_logits(logits)
+
     # compute predictions with MC dropout method, if asked
     probs_dropout = compute_mc_droupout_metrics(classifier, loader, num_samples, drop_threshold, device)
 
@@ -175,7 +179,9 @@ def prepare_dataset_results(dataset, classifier, target, batch_size, device, num
     target_idx = [dataset.get_class_idx(class_name) for class_name in target]
     for metric in metrics:
         # pass the logits so KLDB goes through the same closed form as the guidance path
-        metric_result = compute_metric(metric, probs, probs_dropout=probs_dropout, logits=logits, labels_idx=target_idx)
+        metric_result = compute_metric(
+            metric, probs, probs_dropout=probs_dropout, logits=logits, labels_idx=target_idx, raw_logits=raw_logits
+        )
         if torch.all(torch.isnan(metric_result)):
             continue
         if metric in KLDB_METRICS:

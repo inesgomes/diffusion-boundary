@@ -68,6 +68,18 @@ class BaseClassifier:
         """Run forward pass and return predictions."""
         raise NotImplementedError("Subclasses should implement this method")
 
+    def raw_logits(self, logits):
+        """Undo the temperature scaling ``predict`` applies, recovering the model's own logits.
+
+        Scaling is a division by a positive scalar, so multiplying back is exact. Metrics that
+        must not depend on the calibration fit take these instead of the logits ``predict``
+        returns. The temperature is detached: it is fixed after calibration, and any gradient
+        should reach the logits, not it.
+        """
+        if self.scaler is None:
+            return logits
+        return logits * self.scaler.temperature.detach().to(logits.device)
+
     def _train_temperature_scaler(self, dataloader):
         """Train a temperature scaler using the provided data loader."""
         self.scaler = TemperatureScaler().to(self.device)

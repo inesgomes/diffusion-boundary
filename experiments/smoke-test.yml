@@ -6,9 +6,9 @@ user-args:
   device: cuda:0
   seed: 28
   batch-size: 1
-  save-metrics-disk: False
+  save-metrics-disk: True
   save-images-disk: False
-  log-plots: False
+  log-plots: True
 
 dataset:
   name: ILSVRC/imagenet-1k

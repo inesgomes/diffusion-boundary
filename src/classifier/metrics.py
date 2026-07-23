@@ -18,17 +18,20 @@ from torch.nn import functional as F
 # only decide what gets computed for every sample and reported.
 MULTICLASS_METRICS = [
     "entropy",
-    "margin-top2",
     "kldb",
-    # dropped from reporting: deepgini, second-rank, evidential-ambiguity, kldb_scaled,
-    # gaussian-target, margin, least-confidence
+    # the subset margin, not the global one: it measures the boundary actually being audited,
+    # and unlike margin-top2 it is read off the raw logits, so it survives calibration
+    "logit-margin-subset",
+    # dropped from reporting: margin-top2, logit-margin, deepgini, second-rank,
+    # evidential-ambiguity, kldb_scaled, gaussian-target, margin, least-confidence
 ]
 BINARY_METRICS = [
     "entropy",
-    "margin-top2",
     "kldb",
-    # dropped from reporting: confusion-distance, binary-entropy, deepgini, kldb_scaled,
-    # margin, least-confidence
+    # with two audited classes this is the global logit margin as well
+    "logit-margin-subset",
+    # dropped from reporting: margin-top2, logit-margin, confusion-distance, binary-entropy,
+    # deepgini, kldb_scaled, margin, least-confidence
 ]
 UNCERTAINTY_METRICS = ["mc-dropout-mean"]
 
@@ -84,6 +87,32 @@ def compute_margin_top2(probs):
     """
     top_probs, _ = torch.topk(probs, 2)
     return -(top_probs[:, 0] - top_probs[:, 1])
+
+
+def compute_logit_margin(logits, labels_idx=None):  # pylint: disable=unused-argument
+    """Top-2 margin of the raw logits: sorted(logits)[-1] - sorted(logits)[-2].
+
+    Distance to the nearest decision boundary in logit space, over all classes. Taken on the
+    model's own logits, before any temperature scaling, so the value carries no assumption about
+    the calibration fit. Zero means the top two classes are tied.
+    Goal: minimize
+    """
+    top_logits, _ = torch.topk(logits, 2, dim=1)
+    return -(top_logits[:, 0] - top_logits[:, 1])
+
+
+def compute_logit_margin_subset(logits, labels_idx=None):
+    """Top-2 margin of the raw logits restricted to the audited classes in ``labels_idx``.
+
+    Same quantity as compute_logit_margin, but the top two are taken within the audited subset C,
+    so it measures proximity to the boundary actually being audited rather than to whichever
+    boundary happens to be nearest. Undefined for fewer than two audited classes.
+    Goal: minimize
+    """
+    if labels_idx is None or len(labels_idx) < 2:
+        return torch.full((logits.shape[0],), float("nan"), device=logits.device)
+    top_logits, _ = torch.topk(logits[:, labels_idx], 2, dim=1)
+    return -(top_logits[:, 0] - top_logits[:, 1])
 
 
 def compute_deepgini(probs):
@@ -205,8 +234,13 @@ def compute_mc_dropout_mean(probs_dropout):
     return probs_dropout.var(dim=0).mean(dim=-1)
 
 
-def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=None):
-    """Calculate the specified metric of the classifier output."""
+def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=None, raw_logits=None):
+    """Calculate the specified metric of the classifier output.
+
+    ``logits`` are the ones ``predict`` returns, temperature-scaled when the classifier is
+    calibrated. ``raw_logits`` are the model's own, from ``BaseClassifier.raw_logits``; the logit
+    margins need those so they do not depend on the calibration fit.
+    """
     # avoid problems with log(0) or log(1)
     probs = torch.clip(probs, 1e-10, 1 - 1e-10)
 
@@ -228,6 +262,11 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
         "kldb_scaled": compute_probs_kl_divergence_scaled,
         "gaussian-target": compute_ideal_gaussian_loss,
     }
+    # metrics that need the model's own logits, before any temperature scaling
+    raw_logit_functions = {
+        "logit-margin": compute_logit_margin,
+        "logit-margin-subset": compute_logit_margin_subset,
+    }
     # metrics that require multiple forward passes
     uncertainty_functions = {
         "mc-dropout-mean": compute_mc_dropout_mean,
@@ -235,6 +274,11 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
 
     if metric in probs_functions:
         return probs_functions[metric](probs)
+
+    if metric in raw_logit_functions:
+        if raw_logits is None:
+            return torch.tensor(float("nan"))
+        return raw_logit_functions[metric](raw_logits, labels_idx)
 
     if metric in target_functions:
         if labels_idx is None:

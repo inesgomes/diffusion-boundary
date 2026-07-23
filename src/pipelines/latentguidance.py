@@ -92,7 +92,13 @@ class LatentClassifierGuidance(DiffusionPipeline):
 
         # compute the probabilities and the metric
         probs, logits = classifier.predict(images_t)
-        metric = compute_metric(guidance_type, probs, logits=logits, labels_idx=labels_idx).mean()
+        metric = compute_metric(
+            guidance_type,
+            probs,
+            logits=logits,
+            labels_idx=labels_idx,
+            raw_logits=classifier.raw_logits(logits),
+        ).mean()
 
         # compute the gradient, in relation to the original latent
         grad = torch.autograd.grad(abs(metric), latents)[0]

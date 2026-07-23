@@ -171,6 +171,28 @@ def compute_kldb(labels_idx, logits):
     return -math.log(k) - log_probs[:, labels_idx].sum(dim=1) / k
 
 
+def compute_kldb_decomposition(logits, labels_idx):
+    """Split KLDB into balance + mass, with C = ``labels_idx`` and p = softmax over all classes.
+
+        m       = sum_{i in C} p_i
+        balance = -log|C| - mean_{i in C} log(p_i / m)  = KL(uniform_C || p renormalised in C) >= 0
+        mass    = -log m                                                                        >= 0
+
+    balance + mass == KLDB exactly. In log space so the tiny off-C probabilities do not underflow.
+    Returns ``(m, balance, mass)``, or ``None`` if C is empty or has a missing index.
+    """
+    if not labels_idx or any(i is None for i in labels_idx):
+        return None
+    k = len(labels_idx)
+    log_p = F.log_softmax(logits, dim=1)  # log p over the full vector
+    log_p_c = log_p[:, labels_idx]  # (N, |C|)
+    log_m = torch.logsumexp(log_p_c, dim=1)  # log sum_{i in C} p_i
+    mass = -log_m
+    # balance = -log k - mean(log q_i) = -log k - (mean log p_i - log m)
+    balance = -math.log(k) - log_p_c.mean(dim=1) + log_m
+    return torch.exp(log_m), balance, mass
+
+
 def compute_probs_kl_divergence(probs, labels_idx, logits=None):  # pylint: disable=unused-argument
     """Compute the KL diveregence between the target and the probs. The target is having equal probabilities for the target classes and zero to the remaining ones.
 

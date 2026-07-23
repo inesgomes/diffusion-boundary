@@ -26,16 +26,20 @@ from src.classifier.metrics import (
     BINARY_METRICS,
     MULTICLASS_METRICS,
     UNCERTAINTY_METRICS,
+    compute_kldb_decomposition,
     compute_metric,
 )
 
-# per-sample metrics derived from the extracted features. KDN used to be here; it is no longer
-# computed or reported, so the list is empty until another feature-based metric is added.
-EVAL_METRICS = []
+# per-sample columns added to the results dataframe outside the compute_metric loop, so they are
+# not in the BINARY/MULTICLASS lists but must still be aggregated for wandb. The KLDB
+# decomposition columns live here; KDN used to, before it was dropped.
+EVAL_METRICS = ["m", "kldb_balance", "kldb_mass"]
 
 # metrics that return -KLDB
 KLDB_METRICS = ("kldb", "kldb_scaled")
 KLDB_NEG_TOL = 1e-6
+# balance + mass should reproduce KLDB exactly; this bounds the float32 log_softmax drift
+KLDB_DECOMP_TOL = 1e-3
 
 
 def _record_kldb(metric, metric_result):
@@ -189,11 +193,34 @@ def prepare_dataset_results(dataset, classifier, target, batch_size, device, num
         else:
             results[metric] = torch.abs(metric_result).detach().cpu().numpy()
 
+    # KLDB decomposition: split each image's KLDB into the balance within C and the mass off C.
+    # Persisted as diagnostic columns, computed from the same logits KLDB uses.
+    _record_kldb_decomposition(results, logits, target_idx)
+
     # (extra) calculate performance metrics and show it, if labels exist
     if labels is not None:
         print_performace_metrics(probs, labels)
 
     return results
+
+
+def _record_kldb_decomposition(results, logits, target_idx):
+    """Add the m / kldb_balance / kldb_mass columns and check they sum back to the KLDB column."""
+    decomposition = compute_kldb_decomposition(logits, target_idx)
+    if decomposition is None:
+        return
+    m, balance, mass = (t.detach().cpu().numpy() for t in decomposition)
+    results["m"] = m
+    results["kldb_balance"] = balance
+    results["kldb_mass"] = mass
+
+    # balance + mass == KLDB by construction; verify against the independently computed column
+    if "kldb" in results.columns:
+        max_gap = float(np.abs(balance + mass - results["kldb"].to_numpy()).max())
+        assert max_gap < KLDB_DECOMP_TOL, (
+            f"KLDB decomposition identity broken: max |balance + mass - kldb| = {max_gap:.2e} "
+            f"exceeds {KLDB_DECOMP_TOL:.0e}."
+        )
 
 
 def compute_classes_confusion(results, threshold):

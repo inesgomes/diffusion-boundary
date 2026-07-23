@@ -1,4 +1,4 @@
-project: 20251120_text_image_diffusion
+project: 20260722_text_image_diffusion
 
 user-args: 
   device: cuda:1

@@ -324,6 +324,12 @@ def generate_images(diffusion_settings, classifier, dataset, num_images, batch_s
         ).images
         images.extend(batch_images)
 
+    # guidance diagnostics for the whole run, reported once (pipelines without guidance have none)
+    guidance_summary = getattr(pipe, "guidance_summary", dict)()
+    if guidance_summary and wandb.run is not None:
+        wandb.run.summary.update(guidance_summary)
+        print(f"Guidance diagnostics: {guidance_summary}")
+
     print(f"Generated {len(images)} images")
     return images
 
@@ -352,15 +358,13 @@ def stress_test_evaluator(real_dataset, synth_dataset, classifier, boundary_clas
         args["mc-dropout"]["threshold"],
     )
 
-    # compute synthetic metrics that need features and target (currently is only KDN)
-    synth_metrics, real_features, fake_features = calculate_feature_metrics(
+    # features feeding the quality metrics (precision, recall, density, coverage)
+    real_features, fake_features = calculate_feature_metrics(
         real_dataset,
         synth_dataset,
-        boundary_classes,
         args["batch-size"],
         args["device"],
     )
-    synth_dataset_res = pd.concat([synth_dataset_res, synth_metrics], axis=1)
     valid_metrics = get_valid_metrics(args["n_classes"], synth_dataset_res.columns)
 
     # compute evaluation of synthetic dataset

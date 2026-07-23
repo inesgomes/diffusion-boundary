@@ -5,19 +5,18 @@ from typing import Literal
 
 from torch.utils.data import Dataset
 
-_TRANFORMATION = Literal["DEFAULT", "NORM", "NONE"]
+_TRANFORMATION = Literal["DEFAULT", "NONE"]
 
 
 class SyntheticDataset(Dataset):
     """Class for custom datasets that includes the synthetic samples and the reference to the real ones."""
 
-    def __init__(self, dataset_name, n_classes, class_labels, images, transform, transform_t=None, transform_norm=None):
+    def __init__(self, dataset_name, n_classes, class_labels, images, transform, transform_t=None):
         """Construct the SyntheticDataset class."""
         self.images = images
         self.labels = None  # placeholder for labels
         self.transform = transform
         self.transform_t = transform_t
-        self.transform_norm = transform_norm
         self.dataset_name = dataset_name
         self.n_classes = n_classes
         self.class_labels = class_labels

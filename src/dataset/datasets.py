@@ -14,12 +14,7 @@ class OtherDataset(SyntheticDataset):
     def __init__(self, dataset_name, n_classes, class_labels, images):
         """Construct the PretrainedTransformer class."""
         transform = TRANSFORMATIONS[dataset_name]
-        transform_norm = TRANSFORMATIONS[f"{dataset_name}_norm"]
-        if f"{dataset_name}_norm" not in TRANSFORMATIONS:
-            transform_norm = transform
-        super().__init__(
-            dataset_name, n_classes, class_labels, images, transform=transform, transform_norm=transform_norm
-        )
+        super().__init__(dataset_name, n_classes, class_labels, images, transform=transform)
 
     def __getitem__(self, idx):
         """Get an item from the dataset."""
@@ -27,11 +22,6 @@ class OtherDataset(SyntheticDataset):
         # correct transformation
         if self.transform and (self.use_transformation == "DEFAULT"):
             image_transformed = self.transform(
-                self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
-            )
-        # 0.5 normalization because of FID calculation
-        elif self.transform_norm and (self.use_transformation == "NORM"):
-            image_transformed = self.transform_norm(
                 self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
             )
 
@@ -54,8 +44,6 @@ class TransfomerDataset(SyntheticDataset):
         if f"{model_name}_tensor" not in TRANSFORMATIONS:
             raise ValueError(f"Tensor transformation for {model_name} not defined.")
         transform_tensor = TRANSFORMATIONS[f"{model_name}_tensor"]
-        # normalized transformation, if exists
-        transform_norm = TRANSFORMATIONS[f"{model_name}_norm"] if f"{model_name}_norm" in TRANSFORMATIONS else None
 
         super().__init__(
             dataset_name,
@@ -64,7 +52,6 @@ class TransfomerDataset(SyntheticDataset):
             images,
             transform=transform,
             transform_t=transform_tensor,
-            transform_norm=transform_norm,
         )
 
     def __getitem__(self, idx):
@@ -76,12 +63,6 @@ class TransfomerDataset(SyntheticDataset):
                 image_transformed = self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
             elif isinstance(self.images[idx], torch.Tensor) and self.transform_t:
                 image_transformed = self.transform_t(self.images[idx])
-        elif self.use_transformation == "NORM":
-            if self.transform_norm:
-                image_transformed = self.transform_norm(self.images[idx])
-            elif self.transform:
-                image = self.images[idx].convert("RGB") if self.use_convert_rgb else self.images[idx]
-                image_transformed = self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
 
         label = self.labels[idx] if self.labels is not None else -1
 

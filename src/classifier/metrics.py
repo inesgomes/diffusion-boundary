@@ -12,27 +12,24 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 
+# Metrics computed per sample, stored in the results dataframe and aggregated for the run.
+# The guidance metric must appear here: the visualizations sort the samples by that column.
+# Everything compute_metric knows how to calculate is still available for guidance; these lists
+# only decide what gets computed for every sample and reported.
 MULTICLASS_METRICS = [
     "entropy",
-    "cross-entropy",
     "margin-top2",
-    "deepgini",
-    "second-rank",
-    "evidential-ambiguity",
     "kldb",
-    "kldb_scaled",
-    "gaussian-target",
-    # "margin",
-    # "least-confidence",
+    # dropped from reporting: deepgini, second-rank, evidential-ambiguity, kldb_scaled,
+    # gaussian-target, margin, least-confidence
 ]
 BINARY_METRICS = [
-    "confusion-distance",
-    "binary-entropy",
-    "margin",
-    "deepgini",
+    "entropy",
+    "margin-top2",
     "kldb",
-    "kldb_scaled",
-]  # "least-confidence"
+    # dropped from reporting: confusion-distance, binary-entropy, deepgini, kldb_scaled,
+    # margin, least-confidence
+]
 UNCERTAINTY_METRICS = ["mc-dropout-mean"]
 
 
@@ -127,14 +124,6 @@ def compute_evidential_ambiguity(probs):
     return -m.sum(dim=1)
 
 
-def compute_cross_entropy_loss(probs, logits):
-    """Calculate the cross-entropy loss of the classifier output.
-
-    Goal: maximize
-    """
-    return F.cross_entropy(logits, probs, reduction="none")
-
-
 def compute_kldb(labels_idx, logits):
     """Compute KLDB, the KL divergence from the target distribution to the classifier output.
 
@@ -178,7 +167,7 @@ def compute_probs_kl_divergence_scaled(probs, labels_idx, logits=None):
 
 
 def compute_gaussian_loss(probs, logits):
-    """Calculate the cross-entropy loss of the classifier output.
+    """Calculate the gaussian loss of the classifier output.
 
     Goal: maximize
     """
@@ -233,10 +222,6 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
         "second-rank": compute_second_rank,
         "evidential-ambiguity": compute_evidential_ambiguity,
     }
-    # metrics that need the logits
-    loss_functions = {
-        "cross-entropy": compute_cross_entropy_loss,
-    }
     # metrics that need the target classes
     target_functions = {
         "kldb": compute_probs_kl_divergence,
@@ -250,9 +235,6 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
 
     if metric in probs_functions:
         return probs_functions[metric](probs)
-
-    if metric in loss_functions:
-        return loss_functions[metric](probs, logits) if logits is not None else torch.tensor(float("nan"))
 
     if metric in target_functions:
         if labels_idx is None:

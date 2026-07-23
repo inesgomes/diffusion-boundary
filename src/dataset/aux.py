@@ -93,17 +93,6 @@ TRANSFORMATIONS = {
             T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
     ),
-    # normalized between [-1, 1] option
-    "microsoft/resnet-50_norm": T.Compose(
-        [
-            T.Lambda(lambda img: img.convert("RGB") if img.mode != "RGB" else img),
-            T.Resize(224, interpolation=T.InterpolationMode.BILINEAR),
-            T.CenterCrop(int(224 * 0.875)),
-            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR),
-            T.ToTensor(),
-            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-        ]
-    ),
 }
 
 

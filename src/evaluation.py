@@ -5,6 +5,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 import torch
+import torchvision.transforms as T
 import wandb
 from pymdma.image.measures.synthesis_val import (
     Coverage,
@@ -13,10 +14,12 @@ from pymdma.image.measures.synthesis_val import (
     ImprovedPrecision,
     ImprovedRecall,
 )
+from pymdma.image.models.extractor import StandardTransform
 from pymdma.image.models.features import ExtractorFactory
 from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support
 from sklearn.neighbors import NearestNeighbors
 from torch.utils.data import DataLoader
+from torch.utils.data import Dataset as TorchDataset
 from tqdm import tqdm
 
 from src.classifier.metrics import (
@@ -26,7 +29,9 @@ from src.classifier.metrics import (
     compute_metric,
 )
 
-EVAL_METRICS = ["kdn"]
+# per-sample metrics derived from the extracted features. KDN used to be here; it is no longer
+# computed or reported, so the list is empty until another feature-based metric is added.
+EVAL_METRICS = []
 
 # metrics that return -KLDB
 KLDB_METRICS = ("kldb", "kldb_scaled")
@@ -262,20 +267,13 @@ def compute_kdn(real_features, real_labels, fake_features, boundary_classes, k=6
     return disagreements, lst_nbr
 
 
-def calculate_feature_metrics(real_dataset, fake_dataset, target, batch_size, device):
-    """Calculate evaluation metrics and a visualization needed based on features extracted from the images."""
-    # label to idx
-    boundary_labels = [real_dataset.get_class_idx(class_name) for class_name in target]
-
+def calculate_feature_metrics(real_dataset, fake_dataset, batch_size, device):
+    """Extract the features of both datasets, used by the quality metrics."""
     # compute features from each image (real and synthetic)
-    real_features, real_labels = get_dataset_features(real_dataset, batch_size, device)
+    real_features, _ = get_dataset_features(real_dataset, batch_size, device)
     fake_features, _ = get_dataset_features(fake_dataset, batch_size, device)
 
-    # calculate metrics
-    kdn_results, kdn_nbr = compute_kdn(real_features, real_labels, fake_features, boundary_labels, k=10)
-    synth_metrics = pd.DataFrame({"kdn": kdn_results, "kdn_nbr": kdn_nbr})
-
-    return synth_metrics, real_features, fake_features
+    return real_features, fake_features
 
 
 def get_dataset_features(dataset, batch_size, device):
@@ -283,8 +281,13 @@ def get_dataset_features(dataset, batch_size, device):
     # extract features to compute quality metrics
     extractor = ExtractorFactory.model_from_name(name="dino_vits8").to(device)
 
-    # data loader
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=6)
+    # data loader over the raw images, with dino's own preprocessing (never the classifier's)
+    loader = DataLoader(
+        ExtractorInputDataset(dataset.get_images(), extractor, dataset.get_labels()),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=6,
+    )
 
     # Extract features and ground truth for real dataset
     features_list = []
@@ -301,16 +304,52 @@ def get_dataset_features(dataset, batch_size, device):
     return features, labels
 
 
+class ExtractorInputDataset(TorchDataset):
+    """Raw images preprocessed with ``StandardTransform``, which is what pymdma extractors expect.
+
+    Bypasses the classifier transformations on purpose: routing them here would make the metrics
+    depend on which classifier is being audited, and FID incomparable to published values.
+    """
+
+    def __init__(self, images, extractor, labels=None):
+        """Wrap a list of images with the preprocessing of the given pymdma extractor."""
+        self.images = images
+        self.labels = labels
+        self.transform = StandardTransform(extractor.input_size, extractor.interpolation)
+        self.to_pil = T.ToPILImage()
+
+    def __len__(self):
+        """Return the number of images."""
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        """Return the image preprocessed for the extractor, and its label if the dataset has one."""
+        image = self.images[idx]
+        # generation can hand back [0, 1] tensors instead of PIL images
+        if isinstance(image, torch.Tensor):
+            image = self.to_pil(image.detach().cpu().clamp(0, 1))
+        label = self.labels[idx] if self.labels is not None else -1
+        return self.transform(image.convert("RGB")), label
+
+
 def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
     """Calculate the Frechet Inception Distance (FID) between two datasets using the implementation from pymdma library."""
     # inception feature extractor -> used for FID calculation
     extractor = ExtractorFactory.model_from_name(name="inception_fid").to(device)
 
-    # dataloader with specific transformation
-    real_dataset.set_use_transformation("NORM")
-    real_loader = DataLoader(real_dataset, batch_size=batch_size, shuffle=False, num_workers=6)
-    synth_dataset.set_use_transformation("NORM")
-    synth_loader = DataLoader(synth_dataset, batch_size=batch_size, shuffle=False, num_workers=6)
+    # dataloaders over the raw images, with inception's own preprocessing (never the classifier's)
+    real_loader = DataLoader(
+        ExtractorInputDataset(real_dataset.get_images(), extractor),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=6,
+    )
+    synth_loader = DataLoader(
+        ExtractorInputDataset(synth_dataset.get_images(), extractor),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=6,
+    )
 
     # Extract features for real dataset
     real_features_list = []
@@ -331,9 +370,6 @@ def calculate_fid_metric(real_dataset, synth_dataset, batch_size, device):
     fake_features = np.concatenate(synth_features_list, axis=0)
 
     fid_result = FrechetDistance().compute(real_features, fake_features)
-
-    real_dataset.set_use_transformation("DEFAULT")
-    synth_dataset.set_use_transformation("DEFAULT")
 
     return fid_result.value[0]
 
@@ -367,7 +403,6 @@ def calculate_evaluation_metrics(real_features, fake_features, synthetic_data_re
         # results_dict[f"{m}_avg"] = mean_values[m]
         # results_dict[f"{m}_std"] = sd_values[m]
         results_dict[f"{m}_median"] = median_values[m]
-        results_dict[f"{m}_iqr"] = q3_values[m] - q1_values[m]
         results_dict[f"{m}_25"] = q1_values[m]
         results_dict[f"{m}_75"] = q3_values[m]
 

@@ -17,7 +17,7 @@ dataset:
   num-images: 12
 
 classifier:
-  name: google/vit-base-patch16-224 # microsoft/resnet-50
+  name: microsoft/resnet-50 # google/vit-base-patch16-224
   lib: transformers
   calibrate: True
 

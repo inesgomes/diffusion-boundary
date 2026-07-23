@@ -33,6 +33,16 @@ class LatentClassifierGuidance(DiffusionPipeline):
             scheduler=scheduler,
         )
         self.skipped_guidance_updates = 0
+        # guidance diagnostics, accumulated over the run and reported once in the summary.
+        # per sample, like skipped_guidance_updates, so the skip rate is a real ratio
+        self._guidance_updates = 0
+        # only the smallest norm matters: the normalization below divides the magnitude out, and
+        # a norm that underflows to zero in fp16 makes the update a silent no-op
+        self._grad_norm_min = float("inf")
+        self._nonfinite_grads = 0
+        # per-step logging, enabled only for single-image debug runs (see __call__)
+        self._log_guidance_steps = False
+        self._last_grad_stats = {}
 
     def rescale_noise_cfg(self, noise_cfg, noise_pred_text, guidance_rescale=0.0):
         """Rescales `noise_cfg` tensor based on `guidance_rescale` to improve image quality and fix overexposure.
@@ -94,9 +104,17 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # batch are not coupled through a single shared norm
         sample_dims = list(range(1, grad.ndim))
         norm = torch.linalg.vector_norm(grad, dim=sample_dims, keepdim=True).detach()
-        # Log the gradient norm and a non-finite flag on EVERY guidance step.
+        # Accumulate the smallest gradient norm and the non-finite count for the run summary.
         grad_norm_log = norm.mean().item() if grad_finite else float("nan")
-        wandb.log({"guidance/grad_norm": grad_norm_log, "guidance/nonfinite_grad": int(not grad_finite)})
+        self._guidance_updates += grad.shape[0]
+        if grad_finite:
+            self._grad_norm_min = min(self._grad_norm_min, norm.min().item())
+        else:
+            self._nonfinite_grads += grad.shape[0]
+        self._last_grad_stats = {
+            "guidance/grad_norm": grad_norm_log,
+            "guidance/nonfinite_grad": int(not grad_finite),
+        }
         if grad_finite:
             if not bool((norm > 0).all()):
                 # the gradient is fp16, so its norm underflows to 0 below a gradient scale of
@@ -150,19 +168,46 @@ class LatentClassifierGuidance(DiffusionPipeline):
 
         # weight the metric with our alpha hyperparameter
         update = grad * alpha
-        update_norm = update.norm()
 
-        # log scalars
-        wandb.log(
-            {
-                "mean-guidance": float(metric),
-                "guidance/update_norm": update_norm.item(),
-                # how far the guidance actually moves the latent, relative to the latent scale
-                "guidance/relative_step": (update_norm / latents.norm()).item(),
-                "_diffusion_step": step,
-            }
-        )
+        # single-image debug run only, in one call so every series shares the same wandb step.
+        # relative_step is not summarised: it is alpha whenever the update is not skipped.
+        if self._log_guidance_steps:
+            update_norm = update.norm()
+            wandb.log(
+                {
+                    **self._last_grad_stats,
+                    "mean-guidance": float(metric),
+                    "guidance/update_norm": update_norm.item(),
+                    "guidance/relative_step": (update_norm / latents.norm()).item(),
+                    "_diffusion_step": step,
+                }
+            )
         return latents + update, metric
+
+    def setup_guidance_logging(self, log_denoising_images, batch_size):
+        """Enable the per-step guidance scalars, which are only meaningful for a single image.
+
+        Across a batched run they concatenate one trajectory per image into a single series that
+        is not a curve of anything, so outside that case only the run summary is reported.
+        """
+        self._log_guidance_steps = log_denoising_images and (batch_size == 1)
+        if self._log_guidance_steps and wandb.run is not None:
+            wandb.define_metric("guidance/*", step_metric="_diffusion_step")
+            wandb.define_metric("mean-guidance", step_metric="_diffusion_step")
+
+    def guidance_summary(self):
+        """Return the run-level guidance diagnostics, or an empty dict if guidance never ran."""
+        if self._guidance_updates == 0:
+            return {}
+        return {
+            # denominator for the two counts below, so both read as a rate
+            "guidance/updates": self._guidance_updates,
+            # gradients whose fp16 norm underflowed to zero, so the update was silently a no-op
+            "guidance/skipped_updates": self.skipped_guidance_updates,
+            "guidance/nonfinite_grad_count": self._nonfinite_grads,
+            # how close the run came to that underflow; inf means every gradient was non-finite
+            "guidance/grad_norm_min": self._grad_norm_min,
+        }
 
     @torch.no_grad()
     def __call__(
@@ -185,6 +230,8 @@ class LatentClassifierGuidance(DiffusionPipeline):
         Returns:
             _type_: _description_
         """
+        self.setup_guidance_logging(log_denoising_images, batch_size)
+
         # stable diffusion
         prompt = kwargs.get("prompt", None)
         negative_prompt = kwargs.get("negative_prompt", "")

@@ -7,8 +7,8 @@ repos:
     hooks:
     -   id: export-environment
         name: Export Conda Environment
-        entry: bash -c 'mamba env export -n dfst --no-builds | grep -v "^prefix:" >
-          environment.yml && git add environment.yml'
+        entry: bash -c 'mamba env export -n dfst --no-builds | grep -v
+          "^prefix:" > environment.yml && git add environment.yml'
         language: system
         always_run: true
         pass_filenames: false
@@ -31,7 +31,7 @@ repos:
     -   id: pre-commit-update
 
 -   repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.0
     hooks:
     -   id: ruff
         args: ['--fix', '--line-length=120', '--exit-non-zero-on-fix', '--show-fixes']

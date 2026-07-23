@@ -12,6 +12,7 @@ from PIL import Image
 from umap import UMAP
 
 from src.classifier.base import extract_logits
+from src.classifier.metrics import FRACTION_METRICS
 from src.evaluation import compute_classes_confusion
 
 
@@ -132,6 +133,10 @@ def visualize_sample_synthetic_images(
 
 def visualize_metrics_distributions(real_synth_results, metrics):
     """Plot distributions for real and synthetic datasets."""
+    # indicator metrics are left out: a boxplot of a 0/1 column shows nothing the reported
+    # fraction does not already say
+    metrics = [m for m in metrics if m not in FRACTION_METRICS]
+
     # boxplot real vs synthetic dataset -> metrics
     fig_metric, ax_m = plt.subplots(figsize=(12, 1.2 * len(metrics)))
 

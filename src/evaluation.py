@@ -24,6 +24,7 @@ from tqdm import tqdm
 
 from src.classifier.metrics import (
     BINARY_METRICS,
+    FRACTION_METRICS,
     MULTICLASS_METRICS,
     UNCERTAINTY_METRICS,
     compute_kldb_decomposition,
@@ -425,14 +426,22 @@ def calculate_evaluation_metrics(real_features, fake_features, synthetic_data_re
         "coverage": coverage_result.value[0],
     }
 
+    # indicator metrics carry no spread: quartiles of a 0/1 column only repeat the fraction, so
+    # they are summarised as sum(metric)/N instead
+    fraction_metrics = [m for m in metrics if m in FRACTION_METRICS]
+    quantile_metrics = [m for m in metrics if m not in FRACTION_METRICS]
+
+    for m in fraction_metrics:
+        results_dict[f"{m}_fraction"] = synthetic_data_res[m].sum() / len(synthetic_data_res)
+
     # add average and median of selected metrics
     # mean_values = synthetic_data_res[metrics].mean()
     # sd_values = synthetic_data_res[metrics].std()
-    median_values = synthetic_data_res[metrics].median()
-    q1_values = synthetic_data_res[metrics].quantile(0.25)
-    q3_values = synthetic_data_res[metrics].quantile(0.75)
+    median_values = synthetic_data_res[quantile_metrics].median()
+    q1_values = synthetic_data_res[quantile_metrics].quantile(0.25)
+    q3_values = synthetic_data_res[quantile_metrics].quantile(0.75)
 
-    for m in metrics:
+    for m in quantile_metrics:
         # results_dict[f"{m}_avg"] = mean_values[m]
         # results_dict[f"{m}_std"] = sd_values[m]
         results_dict[f"{m}_median"] = median_values[m]

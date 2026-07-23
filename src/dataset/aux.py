@@ -11,7 +11,41 @@ from functools import partial
 
 import torch
 import torchvision.transforms as T
+import torchvision.transforms.functional as TF
 from datasets import Dataset, get_dataset_config_info, load_dataset, load_from_disk
+
+
+class ResizeCPUBackward(torch.autograd.Function):
+    """Antialiased resize with the gradient computed on the CPU.
+
+    ``upsample_{bilinear,bicubic}2d_aa_backward_cuda`` accumulates with atomics and has no
+    deterministic CUDA implementation, and it is reached on every classifier-guidance step, so it
+    makes generation non-reproducible. A resize is a linear map with no bias, so evaluating its
+    vector-jacobian product on a zero input gives exactly the same gradient, without the atomics.
+    The forward is untouched, so the images the classifier sees are unchanged.
+    """
+
+    @staticmethod
+    def forward(ctx, img, size, interpolation):
+        """Resize on the GPU, exactly as torchvision.transforms.Resize would."""
+        ctx.args = (img.shape, img.dtype, img.device, size, interpolation)
+        return TF.resize(img, size, interpolation=interpolation, antialias=True)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """Replay the resize on the CPU and let autograd transpose it there."""
+        shape, dtype, device, size, interpolation = ctx.args
+        probe = torch.zeros(shape, device="cpu", requires_grad=True)
+        with torch.enable_grad():
+            resized = TF.resize(probe, size, interpolation=interpolation, antialias=True)
+        grad = torch.autograd.grad(resized, probe, grad_output.to("cpu", torch.float32))[0]
+        return grad.to(device=device, dtype=dtype), None, None
+
+
+def deterministic_resize(size, interpolation):
+    """Drop-in for ``T.Resize(size, interpolation, antialias=True)`` with a deterministic backward."""
+    return T.Lambda(lambda img: ResizeCPUBackward.apply(img, size, interpolation))
+
 
 TRANSFORMATIONS = {
     "mnist": T.Compose(
@@ -23,7 +57,7 @@ TRANSFORMATIONS = {
     # manual imitation of the default transformation of the pretrained model - tensor option
     "farleyknight-org-username/vit-base-mnist_tensor": T.Compose(
         [
-            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR, antialias=True),
+            deterministic_resize((224, 224), T.InterpolationMode.BILINEAR),
             T.Lambda(lambda x: x.expand(-1, 3, -1, -1) if x.shape[1] == 1 else x),
             T.Lambda(lambda x: (x + 1) / 2),
             T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
@@ -32,7 +66,7 @@ TRANSFORMATIONS = {
     # manual imitation of the default transformation of the pretrained model - tensor option
     "aaraki/vit-base-patch16-224-in21k-finetuned-cifar10_tensor": T.Compose(
         [
-            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR, antialias=True),
+            deterministic_resize((224, 224), T.InterpolationMode.BILINEAR),
             T.Lambda(lambda x: (x + 1) / 2),  # Convert from [-1,1] -> [0,1]
             T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
@@ -44,7 +78,7 @@ TRANSFORMATIONS = {
     # guidance gradient still flows from the classifier back to the latent.
     "microsoft/resnet-50_tensor": T.Compose(
         [
-            T.Resize(256, interpolation=T.InterpolationMode.BICUBIC, antialias=True),
+            deterministic_resize(256, T.InterpolationMode.BICUBIC),
             T.CenterCrop(224),
             T.ConvertImageDtype(torch.float32),
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -54,7 +88,7 @@ TRANSFORMATIONS = {
     # image_mean/image_std=0.5, default resample=BILINEAR): squash to exactly 224x224, no crop.
     "google/vit-base-patch16-224_tensor": T.Compose(
         [
-            T.Resize((224, 224), interpolation=T.InterpolationMode.BILINEAR, antialias=True),
+            deterministic_resize((224, 224), T.InterpolationMode.BILINEAR),
             T.ConvertImageDtype(torch.float32),
             T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]

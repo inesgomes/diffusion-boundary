@@ -458,6 +458,7 @@ def stress_test_classifier(
                 else classifier_config["name"]
             ),
             "diffusion": diffusion_config_txt,
+            "seed": default_configs["seed"],
             "save-metrics-disk": default_configs["save-metrics-disk"],
             "save-images-disk": default_configs["save-images-disk"],
         },
@@ -634,9 +635,15 @@ if __name__ == "__main__":
     # load environment variables
     load_dotenv()
 
-    # enable torch32 for faster inference
+    # enable tf32 for faster inference (no-op on Turing: tf32 needs Ampere or later)
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
+
+    # reproducible generation
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cuda.enable_mem_efficient_sdp(False)
 
     # get arguments
     parser = argparse.ArgumentParser()

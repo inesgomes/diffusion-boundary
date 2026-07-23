@@ -6,6 +6,8 @@ If the goal is to minimize the metric, we should return a negative value
 If the goal is to maximize the metric, we should return a positive value
 """
 
+import math
+
 import numpy as np
 import torch
 from torch.nn import functional as F
@@ -133,20 +135,30 @@ def compute_cross_entropy_loss(probs, logits):
     return F.cross_entropy(logits, probs, reduction="none")
 
 
-def compute_probs_kl_divergence(probs, labels_idx, logits=None):
+def compute_kldb(labels_idx, logits):
+    """Compute KLDB, the KL divergence from the target distribution to the classifier output.
+
+    The target is uniform over the audited classes (``labels_idx``) and zero elsewhere, which
+    reduces the divergence to its closed form:
+
+        KLDB = -log|C| - (1/|C|) * sum_{i in C} log p_i
+    """
+    if logits is None:
+        raise ValueError(
+            "KLDB requires logits: the closed form needs log_softmax over the full class vector. "
+            "Pass logits=... so the guidance and the evaluation path compute the same function."
+        )
+    k = len(labels_idx)
+    log_probs = F.log_softmax(logits, dim=1)
+    return -math.log(k) - log_probs[:, labels_idx].sum(dim=1) / k
+
+
+def compute_probs_kl_divergence(probs, labels_idx, logits=None):  # pylint: disable=unused-argument
     """Compute the KL diveregence between the target and the probs. The target is having equal probabilities for the target classes and zero to the remaining ones.
 
     Goal: minimize
     """
-    # log-probabilities: prefer log_softmax(logits) over probs.log() for numerical stability.
-    log_probs = F.log_softmax(logits, dim=1) if logits is not None else probs.log()
-
-    target = torch.zeros_like(log_probs)
-    for idx in labels_idx:
-        target[:, idx] = 1 / len(labels_idx)
-    target = torch.clip(target, min=1e-10)
-
-    return -F.kl_div(log_probs, target, reduction="none").sum(dim=1)
+    return -compute_kldb(labels_idx, logits)
 
 
 def compute_probs_kl_divergence_scaled(probs, labels_idx, logits=None):
@@ -160,16 +172,7 @@ def compute_probs_kl_divergence_scaled(probs, labels_idx, logits=None):
 
     gamma = (torch.log(torch.tensor(float(k))) / torch.log(torch.tensor(float(C)))) / 2.0
 
-    # log-probabilities via log_softmax for numerical stability (see compute_probs_kl_divergence)
-    log_probs = F.log_softmax(logits, dim=1) if logits is not None else probs.log()
-
-    target = torch.zeros_like(log_probs)
-    for idx in labels_idx:
-        target[:, idx] = 1 / len(labels_idx)
-    target = torch.clip(target, min=eps)
-
-    # kl divergence
-    kl = F.kl_div(log_probs, target, reduction="none").sum(dim=1)
+    kl = compute_kldb(labels_idx, logits)
     kl_scaled = (kl + eps) ** gamma
     return -kl_scaled
 

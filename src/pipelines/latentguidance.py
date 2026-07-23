@@ -32,6 +32,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
             unet=unet,
             scheduler=scheduler,
         )
+        self.skipped_guidance_updates = 0
 
     def rescale_noise_cfg(self, noise_cfg, noise_pred_text, guidance_rescale=0.0):
         """Rescales `noise_cfg` tensor based on `guidance_rescale` to improve image quality and fix overexposure.
@@ -48,7 +49,9 @@ class LatentClassifierGuidance(DiffusionPipeline):
         return noise_cfg
 
     @torch.enable_grad()
-    def calculate_gradient(self, classifier, transformation, labels_idx, latents, t, prompt_embd, guidance_type):
+    def calculate_gradient(
+        self, classifier, transformation, labels_idx, latents, t, prompt_embd, guidance_type, step=None
+    ):
         """Calculate the gradient of the selected metric with respect to the images."""
         # start the gradient calculation
         latents = latents.clone().detach().requires_grad_(True).to(self.device)
@@ -96,7 +99,13 @@ class LatentClassifierGuidance(DiffusionPipeline):
         wandb.log({"guidance/grad_norm": grad_norm_log, "guidance/nonfinite_grad": int(not grad_finite)})
         if grad_finite:
             if not bool((norm > 0).all()):
-                print("Warning: gradient is all zeros for at least one sample, skipping its normalization.")
+                # the gradient is fp16, so its norm underflows to 0 below a gradient scale of
+                # ~1e-7, and those samples silently keep their (zero) update
+                self.skipped_guidance_updates += int((~(norm > 0)).sum())
+                print(
+                    f"Warning: gradient norm is zero at step {step} (t={int(t)}), skipping the "
+                    f"guidance update. Total skipped: {self.skipped_guidance_updates}."
+                )
             # no epsilon: a scalar factor in the loss then cancels exactly. Dividing by 1 where the
             # norm is zero leaves that sample's gradient (already all zeros) untouched.
             denominator = torch.where(norm > 0, norm, torch.ones_like(norm))
@@ -133,7 +142,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         The classifier arguments are keyword-only to keep the positional signature small.
         """
         metric, grad = self.calculate_gradient(
-            classifier, transformation, labels_idx, latents, t, prompt_emb, guidance_type
+            classifier, transformation, labels_idx, latents, t, prompt_emb, guidance_type, step=step
         )
         # no metric means the guidance is undefined at this step, so the latents are left untouched
         if metric is None:

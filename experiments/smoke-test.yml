@@ -25,9 +25,7 @@ diffusion:
   pipeline: latentguidance
   name: CompVis/stable-diffusion-v1-4
   type: sd
-  scheduler: # klms, ddim
-   - klms            
-   - ddim
+  scheduler: ddim # klms, ddim
   args:
     num-inference-steps: 10   # few steps: images are ugly
     prompt-strategy: single

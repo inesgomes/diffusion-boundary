@@ -5,6 +5,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 import torch
+import wandb
 from pymdma.image.measures.synthesis_val import (
     Coverage,
     Density,
@@ -27,6 +28,33 @@ from src.classifier.metrics import (
 
 EVAL_METRICS = ["kdn"]
 
+# metrics that return -KLDB
+KLDB_METRICS = ("kldb", "kldb_scaled")
+KLDB_NEG_TOL = 1e-6
+
+
+def _record_kldb(metric, metric_result):
+    """Turn the -KLDB returned by compute_metric into KLDB, without hiding a sign error.
+
+    KLDB >= 0 by Gibbs' inequality
+    Negative values beyond float tolerance are therefore reported loudly and stored unclamped.
+    """
+    values = -metric_result.detach().cpu()
+
+    negative = values < -KLDB_NEG_TOL
+    n_negative = int(negative.sum())
+    if n_negative:
+        worst = float(values.min())
+        print(
+            f"WARNING: {metric} is negative for {n_negative}/{len(values)} samples "
+            f"(min {worst:.6e}, tolerance {-KLDB_NEG_TOL:.1e})."
+        )
+        if wandb.run is not None:
+            wandb.run.summary[f"{metric}_negative_count"] = n_negative
+            wandb.run.summary[f"{metric}_negative_min"] = worst
+
+    return values.numpy()
+
 
 def compute_probabilities(classifier, dataset, device):
     """Compute the probabilities for a given dataset.
@@ -35,21 +63,24 @@ def compute_probabilities(classifier, dataset, device):
     The tensor will have the shape (num_samples, num_classes, num_images).
     """
     probs_list = []
+    logits_list = []
     labels_list = []
     with torch.no_grad():
         for batch_images, batch_labels in tqdm(dataset, desc="Compute predictions"):
             batch_images = batch_images.to(device)
-            probs_batch, _ = classifier.predict(batch_images)
+            probs_batch, logits_batch = classifier.predict(batch_images)
             probs_list.append(probs_batch.cpu())
+            logits_list.append(logits_batch.cpu())
             labels_list.append(batch_labels)
         probs = torch.cat(probs_list, dim=0)
+        logits = torch.cat(logits_list, dim=0)
         labels = np.concatenate(labels_list, axis=0)
 
     # if all values are -1, return None on the labels
     all_neg_ones = (labels == -1).all()
     final_labels = labels if not all_neg_ones else None
 
-    return probs, final_labels
+    return probs, logits, final_labels
 
 
 def compute_mc_droupout_metrics(classifier, dataset, num_samples, drop_threshold, device):
@@ -114,7 +145,7 @@ def prepare_dataset_results(dataset, classifier, target, batch_size, device, num
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=6)
 
     # compute dataset predictions
-    probs, labels = compute_probabilities(classifier, loader, device)
+    probs, logits, labels = compute_probabilities(classifier, loader, device)
 
     # compute predictions with MC dropout method, if asked
     probs_dropout = compute_mc_droupout_metrics(classifier, loader, num_samples, drop_threshold, device)
@@ -138,8 +169,13 @@ def prepare_dataset_results(dataset, classifier, target, batch_size, device, num
     metrics = list(set(metrics) | set(UNCERTAINTY_METRICS))
     target_idx = [dataset.get_class_idx(class_name) for class_name in target]
     for metric in metrics:
-        metric_result = compute_metric(metric, probs, probs_dropout=probs_dropout, labels_idx=target_idx)
-        if not torch.all(torch.isnan(metric_result)):
+        # pass the logits so KLDB goes through the same closed form as the guidance path
+        metric_result = compute_metric(metric, probs, probs_dropout=probs_dropout, logits=logits, labels_idx=target_idx)
+        if torch.all(torch.isnan(metric_result)):
+            continue
+        if metric in KLDB_METRICS:
+            results[metric] = _record_kldb(metric, metric_result)
+        else:
             results[metric] = torch.abs(metric_result).detach().cpu().numpy()
 
     # (extra) calculate performance metrics and show it, if labels exist

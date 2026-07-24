@@ -1,0 +1,42 @@
+# Minimal smoke test: 1 image, DDIM only. Validates generation + latent DDIM
+# classifier-guidance path. NOTE: evaluation.num-images == 1 triggers the early
+# return at __main__.py:518, so this SKIPS the eval/viz stage by design.
+project: smoke_ddim_1
+user-args:
+  device: cuda:0
+  seed: 28
+  batch-size: 1
+  save-metrics-disk: False
+  save-images-disk: False
+  log-plots: False
+dataset:
+  name: ILSVRC/imagenet-1k
+  n_classes: 1000
+  split: train
+  num-images: 2
+classifier:
+  name: google/vit-base-patch16-224
+  lib: transformers
+  calibrate: True
+diffusion:
+  pipeline: latentguidance
+  name: CompVis/stable-diffusion-v1-4
+  type: sd
+  scheduler:
+   - ddim
+  args:
+    num-inference-steps: 10
+    prompt-strategy: single
+    classes:
+      - golden retriever
+      - Labrador retriever
+    guidance: kldb
+    alpha: 0.01
+    guidance-freq: 2
+    guidance-scale: 7.5
+    guidance-rescale: 0.7
+    negative-prompt: ""
+evaluation:
+  num-images: 1
+  viz-sample-size: 2
+  attr-map: False

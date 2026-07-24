@@ -281,6 +281,11 @@ class LatentClassifierGuidance(DiffusionPipeline):
                 [negative_prompt], padding="max_length", max_length=max_length, return_tensors="pt"
             )
             uncond_emb = self.text_encoder(uncond_tok.input_ids.to(self.device))[0]
+            # repeat the single unconditional embedding across the batch so text_emb has batch
+            # 2*B to match the CFG-doubled latent_model_input (cat([latents]*2)). Without this,
+            # text_emb is 1+B while the latents are 2*B, which only aligns at B==1.
+            if uncond_emb.shape[0] == 1 and prompt_emb.shape[0] > 1:
+                uncond_emb = uncond_emb.expand(prompt_emb.shape[0], -1, -1)
             # classifier-free guidance, needs two forward passes: one with the conditioned input, and another with the unconditional embeddings
             text_emb = torch.cat([uncond_emb, prompt_emb])
         else:

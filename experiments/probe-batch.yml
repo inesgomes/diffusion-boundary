@@ -1,0 +1,47 @@
+# VRAM/throughput probe: same memory profile as 2-dogs (klms + guidance backward)
+# but tiny, to measure peak VRAM at a known batch before committing to the full run.
+# 24 images / batch 8 = 3 batches; 10 steps with guidance-freq 5 still fires the
+# guidance backward pass (steps 5,10), so the peak is representative of the real run.
+project: probe_batch
+
+user-args:
+  device: cuda:0
+  seed: 28
+  batch-size: 8
+  save-metrics-disk: False
+  save-images-disk: False
+  log-plots: False
+
+dataset:
+  name: ILSVRC/imagenet-1k
+  n_classes: 1000
+  split: train
+  num-images: 2500          # reference cache imagenet-1k_train_2500_207_208 (on volume)
+
+classifier:
+  name: google/vit-base-patch16-224
+  lib: transformers
+  calibrate: False          # skip calibration for the probe (doesn't affect gen VRAM)
+
+diffusion:
+  pipeline: latentguidance
+  name: CompVis/stable-diffusion-v1-4
+  type: sd
+  scheduler: klms
+  args:
+    num-inference-steps: 10
+    prompt-strategy: single
+    classes:
+      - golden retriever
+      - Labrador retriever
+    guidance: kldb
+    alpha: 0.01
+    guidance-freq: 5
+    guidance-scale: 7.5
+    guidance-rescale: 0.7
+    negative-prompt: "blurry, deformed, low quality, watermark, text, extra limbs, ugly"
+
+evaluation:
+  num-images: 24            # 3 batches of 8
+  viz-sample-size: 2
+  attr-map: False

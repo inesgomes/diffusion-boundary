@@ -1,0 +1,46 @@
+# Batching smoke test: exercises the CFG path at batch-size 2 (the batching-fix patch).
+# Generates 4 images = 2 batches of 2, so the 2*B latent vs uncond-embedding alignment
+# is actually hit. Uses the already-cached reference (_12_207_208) + validation calibration set.
+project: smoke_batch2
+
+user-args:
+  device: cuda:0            # set to cpu on a CPU-only pod
+  seed: 28
+  batch-size: 2
+  save-metrics-disk: False
+  save-images-disk: False
+  log-plots: False
+
+dataset:
+  name: ILSVRC/imagenet-1k
+  n_classes: 1000
+  split: train
+  num-images: 12           # reference cache imagenet-1k_train_12_207_208 already on the volume
+
+classifier:
+  name: google/vit-base-patch16-224   # baked weights (no download)
+  lib: transformers
+  calibrate: False          # skip the 1000-img calibration pass to keep the smoke fast
+
+diffusion:
+  pipeline: latentguidance
+  name: CompVis/stable-diffusion-v1-4
+  type: sd
+  scheduler: ddim
+  args:
+    num-inference-steps: 10
+    prompt-strategy: single
+    classes:
+      - golden retriever
+      - Labrador retriever
+    guidance: kldb
+    alpha: 0.01
+    guidance-freq: 2
+    guidance-scale: 7.5
+    guidance-rescale: 0.7
+    negative-prompt: ""
+
+evaluation:
+  num-images: 12           # generation count -> 6 batches of 2 (>= k+1 for the recall metric)
+  viz-sample-size: 2
+  attr-map: False

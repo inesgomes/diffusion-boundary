@@ -175,3 +175,5 @@ src/huggingface.py
 experiments/old
 experiments/tst
 run_all.sh
+*.csv
+figures/

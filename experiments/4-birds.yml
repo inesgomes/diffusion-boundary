@@ -5,8 +5,8 @@ user-args:
   seed: 28
   batch-size: 1
   save-metrics-disk: True
-  save-images-disk: False
-  log-plots: True
+  save-images-disk: True
+  log-plots: False
 
 dataset:
   name: ILSVRC/imagenet-1k
@@ -34,7 +34,7 @@ diffusion:
       - dowitcher
     guidance: kldb
     # alpha
-    alpha: 0.01
+    alpha: 0
       # - 0
       # - 0.01
       # - 0.03

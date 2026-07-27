@@ -3,12 +3,12 @@
 project: smoke_test
 
 user-args:
-  device: cuda:0
+  device: cuda:1
   seed: 28
   batch-size: 1
-  save-metrics-disk: True
+  save-metrics-disk: False
   save-images-disk: False
-  log-plots: True
+  log-plots: False
 
 dataset:
   name: ILSVRC/imagenet-1k
@@ -17,7 +17,7 @@ dataset:
   num-images: 12
 
 classifier:
-  name: microsoft/resnet-50 # google/vit-base-patch16-224
+  name: google/vit-base-patch16-224 # microsoft/resnet-50
   lib: transformers
   calibrate: True
 
@@ -25,21 +25,25 @@ diffusion:
   pipeline: latentguidance
   name: CompVis/stable-diffusion-v1-4
   type: sd
-  scheduler: ddim # klms, ddim
+  scheduler: klms # klms, ddim
   args:
-    num-inference-steps: 10   # few steps: images are ugly
+    num-inference-steps: 40
     prompt-strategy: single
     classes:
       - golden retriever
       - Labrador retriever
     guidance: kldb
-    alpha: 0.01
-    guidance-freq: 2       
+    alpha: 
+      - 0.03
+      - 0.05
+      - 0.08
+      - 0.1
+    guidance-freq: 5       
     guidance-scale: 7.5
     guidance-rescale: 0.7
-    negative-prompt: ""
+    negative-prompt: blurry, deformed, low quality, watermark, text, extra limbs, ugly
 
 evaluation:
-  num-images: 12
-  viz-sample-size: 2
+  num-images: 1
+  viz-sample-size: 1
   attr-map: False

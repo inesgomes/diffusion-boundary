@@ -35,11 +35,11 @@ diffusion:
     num-inference-steps: <int> # number of timesteps (T)
     prompt-strategy: <classes> # it means that we will use the classes names concatened by "and". Other types of prompts are not yet supported
     classes: <list of class names> # subset of classes that we want to find the decision boundary
-    guidance: kl-div-target # KLDB
+    guidance: <kldb, entropy, logit-margin, confusion-distance> # metric for diffusion stress test guidance
     alpha: <float or list<float> > # different alpha values to test. 0 means original diffusion without classifier guidance. Unbounded with minimum as zero.
-    guidance-freq: <int> # frequency to apply classifier guidance. Between 1 and T. Default=5
+    guidance-freq: <int> # it is our gamma: frequency to apply classifier guidance. Between 1 and T. Default=5
     guidance-scale: <float> # it is our beta: guidance scale for classifier free guidance. 1 means to classifier free guidance is applied
-    guidance-rescale: <float> # rescaling weight of classifier free guidance. Between 0 and 1 (0 disables it). Required: no default is injected. The experiments use 0.7
+    guidance-rescale: <float> # rescaling weight of classifier free guidance. Between 0 and 1 (0 disables it). The experiments use 0.7
     negative-prompt: <empty or text> # negative prompt for the diffusion model
 
 evaluation:

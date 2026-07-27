@@ -13,28 +13,15 @@ import torch
 from torch.nn import functional as F
 
 # Metrics computed per sample, stored in the results dataframe and aggregated for the run.
-# The guidance metric must appear here: the visualizations sort the samples by that column.
-# Everything compute_metric knows how to calculate is still available for guidance; these lists
-# only decide what gets computed for every sample and reported.
+# The guidance metric must appear here
 MULTICLASS_METRICS = [
     "entropy",
     "kldb",
-    # the subset margin, not the global one: it measures the boundary actually being audited,
-    # and unlike margin-top2 it is read off the raw logits, so it survives calibration
     "logit-margin-subset",
+    "logit-margin",
     "topk-subset",
-    # dropped from reporting: margin-top2, logit-margin, deepgini, second-rank,
-    # evidential-ambiguity, kldb_scaled, gaussian-target, margin, least-confidence
 ]
-BINARY_METRICS = [
-    "entropy",
-    "kldb",
-    # with two audited classes this is the global logit margin as well
-    "logit-margin-subset",
-    "topk-subset",
-    # dropped from reporting: margin-top2, logit-margin, confusion-distance, binary-entropy,
-    # deepgini, kldb_scaled, margin, least-confidence
-]
+BINARY_METRICS = ["entropy", "kldb", "logit-margin-subset", "logit-margin", "topk-subset", "confusion-distance"]
 UNCERTAINTY_METRICS = ["mc-dropout-mean"]
 
 FRACTION_METRICS = ["topk-subset"]

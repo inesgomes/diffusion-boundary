@@ -1,7 +1,6 @@
-"""Report figures for the diffusion-boundary experiments.
+"""KLDB and coverage over the guidance sweep, plus the alpha* selection strategies.
 
-Styled for a two-column paper: text-width (6.9 in), Times-metric serif at
-7-9 pt, and a print-safe categorical palette.
+See README.md for the colour and print-scale rules.
 """
 
 import json
@@ -17,9 +16,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
+from style import AXIS, CATEGORICAL, GRIDLINE, INK, INK_SECONDARY, paper_rc
 
 REPORT_DIR = Path(__file__).resolve().parent
-RUNS_CSV = REPORT_DIR / "wandb-runs.csv"
+RUNS_CSV = REPORT_DIR / "wandb" / "wandb-runs.csv"
 FIGURES_DIR = REPORT_DIR / "figures"
 PROJECT_ENV = REPORT_DIR.parent / ".env"
 
@@ -33,11 +33,11 @@ VALIDITY_COL = "topk-subset_fraction"
 VALIDITY_TOL = 0.01  # see select_best_alpha; tight enough that 0.02 moves a pick
 KLDB_TOL = 0.10
 
-# Okabe-Ito blue / vermillion, validated for CVD and >=3:1 contrast on paper
-# white. Marker and linestyle repeat the distinction for grayscale printing.
+# The first two palette slots. Marker and linestyle repeat the distinction, so
+# identity never rests on hue alone.
 SERIES_STYLES = [
-    {"color": "#0072B2", "marker": "o", "linestyle": "-"},
-    {"color": "#D55E00", "marker": "s", "linestyle": "--"},
+    {"color": CATEGORICAL[0], "marker": "o", "linestyle": "-"},
+    {"color": CATEGORICAL[1], "marker": "s", "linestyle": "--"},
 ]
 CLASSIFIER_LABELS = {
     "google/vit-base-patch16-224": "ViT-B/16",
@@ -50,29 +50,7 @@ SUBSET_LABELS = {
     ("ruddy turnstone", "red-backed sandpiper", "redshank", "dowitcher"): "Birds",
 }
 
-INK, INK_SECONDARY, GRIDLINE, AXIS = "#000000", "#333333", "#d9d9d9", "#4d4d4d"
-FIG_SIZE_IN = (6.9, 4.1)
-
-PAPER_RC = {
-    "font.family": "serif",
-    "font.serif": ["Times New Roman", "Nimbus Roman", "Liberation Serif", "STIXGeneral"],
-    "mathtext.fontset": "stix",
-    "font.size": 8,
-    "axes.titlesize": 8,
-    "axes.labelsize": 8.5,
-    "xtick.labelsize": 7,
-    "ytick.labelsize": 7,
-    "legend.fontsize": 8,
-    "axes.linewidth": 0.6,
-    "lines.linewidth": 1.1,
-    "lines.markersize": 3.0,
-    "xtick.major.width": 0.6,
-    "ytick.major.width": 0.6,
-    "figure.facecolor": "white",
-    "savefig.facecolor": "white",
-    "pdf.fonttype": 42,  # TrueType, not Type 3: required by most publishers
-    "ps.fonttype": 42,
-}
+FIG_SIZE_IN = (7.8, 3.3)  # drawn wider than the page; include it at \textwidth
 
 
 def _class_names(classes_json):
@@ -116,9 +94,9 @@ def _at_validity_peak(config, validity_tol=VALIDITY_TOL):
 def _kldb_undominated(config):
     """Alphas no other alpha beats on all three KLDB quartiles at once.
 
-    Uses the whole distribution rather than the median alone: an alpha survives
-    unless some other alpha is at least as close to the boundary at the 25th,
-    50th and 75th percentile, and strictly closer at one of them.
+    Reads the whole distribution, not the median alone: an alpha survives unless
+    another is at least as close at the 25th, 50th and 75th percentile, and
+    strictly closer at one.
     """
     quartiles = config[["kldb_25", "kldb_median", "kldb_75"]].to_numpy()
     keep = [
@@ -142,7 +120,7 @@ STRATEGIES = {
 }
 
 
-def select_best_alpha(runs=None, strategy="validity", kldb_tol=KLDB_TOL, **kwargs):
+def select_best_alpha(runs=None, strategy="kldb-coverage", kldb_tol=KLDB_TOL, **kwargs):
     """Pick one alpha per (subset, classifier), by one of the STRATEGIES.
 
     1. ``strategy`` narrows the alphas: ``"validity"`` keeps those at the
@@ -181,10 +159,9 @@ def select_best_alpha(runs=None, strategy="validity", kldb_tol=KLDB_TOL, **kwarg
 def real_kldb_reference(selection=None):
     """Median KLDB of the *real* ImageNet images, per (subset, classifier).
 
-    Read from ``FILESDIR/logs/<run_id>/results_real.parquet``, which already
-    stores the per-image KLDB. The real set does not depend on alpha, so the
-    alpha* run is used only to keep reference and marked point on one run.
-    Returns an empty frame if the logs are unreachable.
+    Read from ``FILESDIR/logs/<run_id>/results_real.parquet``. The real set does
+    not depend on alpha, so the alpha* run only keeps reference and marked point
+    on one run. Returns an empty frame if the logs are unreachable.
     """
     selection = select_best_alpha() if selection is None else selection
     # The repo reads FILESDIR via python-dotenv, which this report does not
@@ -285,7 +262,7 @@ def plot_kldb_coverage_over_alpha(selection=None, show_real_reference=False):
     classifiers = sorted(df[CLASSIFIER_COL].unique())
     styles = {clf: SERIES_STYLES[i] for i, clf in enumerate(classifiers)}
 
-    with mpl.rc_context(PAPER_RC):
+    with mpl.rc_context(paper_rc(FIG_SIZE_IN[0])):
         fig, axes = plt.subplots(
             2, len(groups), figsize=FIG_SIZE_IN, sharex=True, sharey="row", squeeze=False, layout="constrained"
         )
@@ -336,7 +313,7 @@ def plot_kldb_coverage_over_alpha(selection=None, show_real_reference=False):
         )
 
         FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-        # UTC then back to local: an aware timestamp that still reads as local time.
+        # UTC then back to local: aware, but still reads as local time.
         stamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
         stem = FIGURES_DIR / f"kldb_coverage_over_alphas_{stamp}"
         fig.savefig(stem.with_suffix(".png"), dpi=600, bbox_inches="tight", pad_inches=0.01)

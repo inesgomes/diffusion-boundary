@@ -31,7 +31,7 @@ diffusion:
       - leopard, Panthera pardus
       - jaguar, panther, Panthera onca, Felis onca
       - cheetah, chetah, Acinonyx jubatus
-    guidance: logit-margin # kldb, entropy, logit-margin 
+    guidance: kldb # kldb, entropy, logit-margin 
     # alpha
     alpha: 0
     # gamma

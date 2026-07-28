@@ -146,7 +146,7 @@ def get_tst_dataset_streaming(dataset_name, dataset_split, n_samples, subset_idx
     """Get a dataset in streaming mode. This is useful for large datasets as the dataset is not loaded into memory (only after sampling)."""
     # get a dataset from huggingface in streaming mode
     dataset = load_dataset(dataset_name, split=dataset_split, streaming=True)
-    dataset = dataset.shuffle(seed=42, buffer_size=10000)
+    # dataset = dataset.shuffle(seed=42, buffer_size=10000)
 
     # from iterable to dataset
     if len(subset_idx) > 0:

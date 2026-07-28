@@ -30,8 +30,7 @@ RUN_ID_COL = "ID"
 # Fraction of images whose top-|C| classes all lie inside the audited subset.
 VALIDITY_COL = "topk-subset_fraction"
 
-VALIDITY_TOL = 0.01  # see select_best_alpha; tight enough that 0.02 moves a pick
-KLDB_TOL = 0.10
+KLDB_TOL = 0.10  # median KLDB within this of the best counts as tied
 
 # The first two palette slots. Marker and linestyle repeat the distinction, so
 # identity never rests on hue alone.
@@ -80,69 +79,26 @@ def _load_runs():
     return df[required + optional].dropna(subset=required).sort_values(ALPHA_COL)
 
 
-def _at_validity_peak(config, validity_tol=VALIDITY_TOL):
-    """Alphas within ``validity_tol`` of the peak top-|C| subset fraction.
+SELECTION_RULE = "the lowest median KLDB, then the widest coverage among the alphas within"
 
-    Past that peak guidance pushes probability mass out of the audited subset,
-    so a lower KLDB there is measuring a different boundary. NaN means
-    unmeasured, not failed, so those alphas stay in the running.
+
+def select_best_alpha(runs=None, kldb_tol=KLDB_TOL):
+    """Pick one alpha per (subset, classifier) from KLDB and coverage alone.
+
+    Among the alphas whose median KLDB is within ``kldb_tol`` of the best any
+    alpha reaches for that configuration, take the one with the widest coverage.
+    One rule over both objectives: the tolerance states how much boundary
+    proximity a gain in manifold fidelity is worth.
     """
-    validity = config[VALIDITY_COL]
-    return config[validity.isna() | (validity >= (1 - validity_tol) * validity.max())]
-
-
-def _kldb_undominated(config):
-    """Alphas no other alpha beats on all three KLDB quartiles at once.
-
-    Reads the whole distribution, not the median alone: an alpha survives unless
-    another is at least as close at the 25th, 50th and 75th percentile, and
-    strictly closer at one.
-    """
-    quartiles = config[["kldb_25", "kldb_median", "kldb_75"]].to_numpy()
-    keep = [
-        not any((other <= row).all() and (other < row).any() for j, other in enumerate(quartiles) if j != i)
-        for i, row in enumerate(quartiles)
-    ]
-    return config[keep]
-
-
-# Each strategy narrows the alphas; the shared steps below then take the lowest
-# median KLDB (within kldb_tol) and break ties on coverage.
-STRATEGIES = {
-    "validity": (
-        _at_validity_peak,
-        "the largest top-$|C|$ subset fraction, then the lowest median KLDB",
-    ),
-    "kldb-coverage": (
-        _kldb_undominated,
-        "the alphas undominated across the KLDB quartiles, then the lowest median KLDB",
-    ),
-}
-
-
-def select_best_alpha(runs=None, strategy="kldb-coverage", kldb_tol=KLDB_TOL, **kwargs):
-    """Pick one alpha per (subset, classifier), by one of the STRATEGIES.
-
-    1. ``strategy`` narrows the alphas: ``"validity"`` keeps those at the
-       top-|C| subset-fraction peak, ``"kldb-coverage"`` keeps those undominated
-       across the KLDB quartiles (it reads nothing but KLDB and coverage).
-    2. Take the lowest median KLDB, counting anything within ``kldb_tol`` as tied.
-    3. Break ties on coverage, the manifold-fidelity guard.
-
-    Extra keyword arguments go to the strategy (e.g. ``validity_tol``).
-    """
-    narrow, _ = STRATEGIES[strategy]
     df = _load_runs() if runs is None else runs
     rows = []
     for (classes, classifier), config in df.groupby([CLASSES_COL, CLASSIFIER_COL], sort=False):
-        candidates = narrow(config, **kwargs)
-        tied = candidates[candidates["kldb_median"] <= (1 + kldb_tol) * candidates["kldb_median"].min()]
+        tied = config[config["kldb_median"] <= (1 + kldb_tol) * config["kldb_median"].min()]
         chosen = tied.loc[tied["coverage"].idxmax()]
         rows.append(
             {
                 CLASSES_COL: classes,
                 CLASSIFIER_COL: classifier,
-                "strategy": strategy,
                 "alpha": chosen[ALPHA_COL],
                 "run_id": chosen[RUN_ID_COL],
                 "kldb_25": chosen["kldb_25"],
@@ -150,7 +106,7 @@ def select_best_alpha(runs=None, strategy="kldb-coverage", kldb_tol=KLDB_TOL, **
                 "kldb_75": chosen["kldb_75"],
                 VALIDITY_COL: chosen[VALIDITY_COL],
                 "coverage": chosen["coverage"],
-                "candidates": ", ".join(f"{a:g}" for a in sorted(candidates[ALPHA_COL])),
+                "candidates": ", ".join(f"{a:g}" for a in sorted(tied[ALPHA_COL])),
             }
         )
     return pd.DataFrame(rows)
@@ -320,11 +276,11 @@ def plot_kldb_coverage_over_alpha(selection=None, show_real_reference=False):
         fig.savefig(stem.with_suffix(".pdf"), bbox_inches="tight", pad_inches=0.01)
         plt.close(fig)
 
-    caption = _caption(df, groups, reference, selection["strategy"].iloc[0])
+    caption = _caption(df, groups, reference)
     return stem.with_suffix(".png"), stem.with_suffix(".pdf"), caption
 
 
-def _caption(df, groups, reference, strategy):
+def _caption(df, groups, reference):
     """Build the figure caption, with the per-run N spelled out."""
     subsets = "; ".join(
         f"({string.ascii_lowercase[i]}) {_subset_label(g)} - {' · '.join(_class_names(g))}"
@@ -338,8 +294,7 @@ def _caption(df, groups, reference, strategy):
         "bands give the interquartile range (25th-75th percentile) of the per-image "
         "KLDB. The KLDB axis is shared across subsets. Each point is one run over "
         f"N = {n_images} generated images (seed {seeds}). Diamonds mark the selected "
-        f"$\\alpha^{{*}}$ per configuration: {STRATEGIES[strategy][1]} within "
-        f"{KLDB_TOL:.0%}, ties broken by coverage."
+        f"$\\alpha^{{*}}$ per configuration: {SELECTION_RULE} {KLDB_TOL:.0%} of it."
     )
     if reference.empty:
         return caption
@@ -351,7 +306,7 @@ def _caption(df, groups, reference, strategy):
 
 
 def main():
-    """Draw the figure with the default strategy and print every strategy's picks."""
+    """Draw the figure and print the selected alpha* per configuration."""
     selection = select_best_alpha()
     png, pdf, caption = plot_kldb_coverage_over_alpha(selection)
     print(png, pdf, sep="\n")
@@ -367,14 +322,11 @@ def main():
         "coverage",
         "candidates",
     ]
-    for name in STRATEGIES:
-        table = select_best_alpha(strategy=name) if name != selection["strategy"][0] else selection
-        table = table.assign(
-            subset=table[CLASSES_COL].map(_subset_label),
-            classifier=table[CLASSIFIER_COL].map(lambda c: CLASSIFIER_LABELS.get(c, c)),
-        ).sort_values(["subset", "classifier"])
-        print(f"\nstrategy: {name}")
-        print(table[columns].to_string(index=False, float_format="{:.3f}".format))
+    table = selection.assign(
+        subset=selection[CLASSES_COL].map(_subset_label),
+        classifier=selection[CLASSIFIER_COL].map(lambda c: CLASSIFIER_LABELS.get(c, c)),
+    ).sort_values(["subset", "classifier"])
+    print(f"\n{table[columns].to_string(index=False, float_format='{:.3f}'.format)}")
     print(f"\n{caption}")
 
 

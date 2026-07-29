@@ -29,7 +29,7 @@ diffusion:
     prompt-strategy: single # and 
     classes:
       - timber wolf, grey wolf, gray wolf, Canis lupus
-      - Siberian husky
+      - Eskimo dog, husky
     guidance: kldb # kldb, entropy, logit-margin
     # alpha
     alpha: 0

@@ -22,6 +22,7 @@ MULTICLASS_METRICS = [
     # the subset margin, not the global one: it measures the boundary actually being audited,
     # and unlike margin-top2 it is read off the raw logits, so it survives calibration
     "logit-margin-subset",
+    "topk-subset",
     # dropped from reporting: margin-top2, logit-margin, deepgini, second-rank,
     # evidential-ambiguity, kldb_scaled, gaussian-target, margin, least-confidence
 ]
@@ -30,10 +31,13 @@ BINARY_METRICS = [
     "kldb",
     # with two audited classes this is the global logit margin as well
     "logit-margin-subset",
+    "topk-subset",
     # dropped from reporting: margin-top2, logit-margin, confusion-distance, binary-entropy,
     # deepgini, kldb_scaled, margin, least-confidence
 ]
 UNCERTAINTY_METRICS = ["mc-dropout-mean"]
+
+FRACTION_METRICS = ["topk-subset"]
 
 
 def compute_confusion_distance(probs):
@@ -113,6 +117,24 @@ def compute_logit_margin_subset(logits, labels_idx=None):
         return torch.full((logits.shape[0],), float("nan"), device=logits.device)
     top_logits, _ = torch.topk(logits[:, labels_idx], 2, dim=1)
     return -(top_logits[:, 0] - top_logits[:, 1])
+
+
+def compute_topk_subset(probs, labels_idx, logits=None):  # pylint: disable=unused-argument
+    """Return 1 if the top-|C| classes all lie inside the audited subset C = ``labels_idx``, else 0.
+
+    An indicator, so it is aggregated as a fraction (see FRACTION_METRICS), and its gradient is
+    zero almost everywhere, so it cannot be used for guidance.
+    Goal: maximize
+    """
+    if not labels_idx or any(i is None for i in labels_idx):
+        return torch.full((probs.shape[0],), float("nan"), device=probs.device)
+    k = len(labels_idx)
+    if k > probs.shape[1]:
+        return torch.full((probs.shape[0],), float("nan"), device=probs.device)
+    topk_idx = torch.topk(probs, k, dim=1).indices  # (N, |C|)
+    in_subset = torch.zeros(probs.shape[1], dtype=torch.bool, device=probs.device)
+    in_subset[torch.as_tensor(labels_idx, device=probs.device)] = True
+    return in_subset[topk_idx].all(dim=1).float()
 
 
 def compute_deepgini(probs):
@@ -283,6 +305,7 @@ def compute_metric(metric, probs, probs_dropout=None, logits=None, labels_idx=No
         "kldb": compute_probs_kl_divergence,
         "kldb_scaled": compute_probs_kl_divergence_scaled,
         "gaussian-target": compute_ideal_gaussian_loss,
+        "topk-subset": compute_topk_subset,
     }
     # metrics that need the model's own logits, before any temperature scaling
     raw_logit_functions = {

@@ -1,0 +1,53 @@
+# RESUME of 4-birds-ViT: alphas .01 and .03 already completed (2026-07-25); .05 was
+# interrupted mid-run (didn't save). This runs the remaining 3 alphas only.
+project: 20260722_text_image_diffusion-gpu
+
+user-args:
+  device: cuda:0
+  seed: 28
+  batch-size: 8
+  save-metrics-disk: True
+  save-images-disk: False
+  log-plots: False
+
+dataset:
+  name: ILSVRC/imagenet-1k
+  n_classes: 1000
+  split: train
+  num-images: 2500
+
+classifier:
+  name: google/vit-base-patch16-224
+  lib: transformers
+  calibrate: True
+
+diffusion:
+  pipeline: latentguidance
+  name: CompVis/stable-diffusion-v1-4
+  type: sd
+  scheduler: klms
+  args:
+    num-inference-steps: 40
+    prompt-strategy: single
+    classes:
+      - ruddy turnstone, Arenaria interpres
+      - red-backed sandpiper, dunlin, Erolia alpina
+      - redshank, Tringa totanus
+      - dowitcher
+    guidance: kldb
+    # alpha (remaining only)
+    alpha:
+      - 0.05
+      - 0.08
+      - 0.1
+    # gamma
+    guidance-freq: 5
+    # beta
+    guidance-scale: 7.5
+    guidance-rescale: 0.7
+    negative-prompt: blurry, deformed, low quality, watermark, text, extra limbs, ugly # if not specified, it is empty
+
+evaluation:
+  num-images: 2500
+  viz-sample-size: 10
+  attr-map: False

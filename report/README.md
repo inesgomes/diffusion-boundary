@@ -5,8 +5,12 @@ under colourblind simulation, in greyscale, and at print size.
 
 ```bash
 python best_alpha_viz.py     # KLDB + coverage over the guidance sweep
+python ecdf_viz.py           # per-image KLDB ECDF, unguided vs alpha* (--baseline/--best run ids)
 python toy_dataset_viz.py    # toy decision boundaries + boundary-proximity metrics
 ```
+
+`ecdf_viz.py` reads the per-image logs, so it needs `FILESDIR` (from `.env` or
+the environment) to hold `logs/<run_id>/results_*.parquet`.
 
 Both write PNG + PDF into `figures/` and print the paths. `style.py` holds the
 shared palette, typography and print scale — import from it, don't redefine.

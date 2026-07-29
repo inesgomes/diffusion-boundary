@@ -51,6 +51,13 @@ SUBSET_LABELS = {
 
 FIG_SIZE_IN = (7.8, 3.3)  # drawn wider than the page; include it at \textwidth
 
+# The unguided run is a baseline, not the first point of the sweep: it sits in
+# its own slot left of the gap, detached from the curve.
+BASELINE_ALPHA = 0.0
+BASELINE_X = -0.02
+BASELINE_DODGE = 0.01  # classifiers sit side by side in the slot, not on top of each other
+BASELINE_LABEL = "no\nguidance"
+
 
 def _class_names(classes_json):
     """Return the audited classes, by primary common name."""
@@ -112,6 +119,17 @@ def select_best_alpha(runs=None, kldb_tol=KLDB_TOL):
     return pd.DataFrame(rows)
 
 
+def files_dir():
+    """Return FILESDIR, the run-log root holding ``logs/<run_id>/results_*.parquet``.
+
+    The repo reads it via python-dotenv, which this report does not depend on;
+    parse the same .env directly. Empty string if it is set nowhere.
+    """
+    return os.environ.get("FILESDIR") or dict(
+        line.split("=", 1) for line in PROJECT_ENV.read_text().splitlines() if "=" in line
+    ).get("FILESDIR", "").strip("\"' ")
+
+
 def real_kldb_reference(selection=None):
     """Median KLDB of the *real* ImageNet images, per (subset, classifier).
 
@@ -120,16 +138,12 @@ def real_kldb_reference(selection=None):
     on one run. Returns an empty frame if the logs are unreachable.
     """
     selection = select_best_alpha() if selection is None else selection
-    # The repo reads FILESDIR via python-dotenv, which this report does not
-    # depend on; parse the same .env directly.
-    files_dir = os.environ.get("FILESDIR") or dict(
-        line.split("=", 1) for line in PROJECT_ENV.read_text().splitlines() if "=" in line
-    ).get("FILESDIR", "").strip("\"' ")
+    files_dir_path = files_dir()
 
     rows = []
     for _, pick in selection.iterrows():
-        path = Path(files_dir) / "logs" / str(pick["run_id"]) / "results_real.parquet"
-        if not files_dir or not path.is_file():
+        path = Path(files_dir_path) / "logs" / str(pick["run_id"]) / "results_real.parquet"
+        if not files_dir_path or not path.is_file():
             print(f"no real KLDB reference: {path} unreadable", file=sys.stderr)
             continue
         kldb = pd.read_parquet(path, columns=["kldb"])["kldb"]
@@ -153,7 +167,7 @@ def _style_axes(ax):
         ax.spines[side].set_color(AXIS)
 
 
-def _draw_series(ax_kldb, ax_cov, run, style, pick=None, real_median=None):
+def _draw_series(ax_kldb, ax_cov, run, style, pick=None, real_median=None, baseline_x=BASELINE_X):
     """One classifier's curves in one panel."""
     line = {
         "markerfacecolor": "white",
@@ -176,14 +190,34 @@ def _draw_series(ax_kldb, ax_cov, run, style, pick=None, real_median=None):
     if real_median is not None:
         # The gap to the curve is how far guidance moved the generated set.
         ax_kldb.axhline(real_median, color=style["color"], linestyle=":", linewidth=1.0, zorder=1)
+
+    guided = run[run[ALPHA_COL] > BASELINE_ALPHA]
     ax_kldb.fill_between(
-        run[ALPHA_COL], run["kldb_25"], run["kldb_75"], color=style["color"], alpha=0.12, linewidth=0, zorder=2
+        guided[ALPHA_COL], guided["kldb_25"], guided["kldb_75"], color=style["color"], alpha=0.12, linewidth=0, zorder=2
     )
-    ax_kldb.plot(run[ALPHA_COL], run["kldb_median"], **line)
-    ax_cov.plot(run[ALPHA_COL], run["coverage"], **line)
+    ax_kldb.plot(guided[ALPHA_COL], guided["kldb_median"], **line)
+    ax_cov.plot(guided[ALPHA_COL], guided["coverage"], **line)
+
+    baseline = run[run[ALPHA_COL] == BASELINE_ALPHA]
+    if not baseline.empty:
+        # No curve to band, so the IQR becomes whiskers on the lone point.
+        row = baseline.iloc[0]
+        point = {**line, "linestyle": "none"}
+        ax_kldb.errorbar(
+            baseline_x,
+            row["kldb_median"],
+            yerr=[[row["kldb_median"] - row["kldb_25"]], [row["kldb_75"] - row["kldb_median"]]],
+            capsize=2,
+            elinewidth=1.0,
+            capthick=0.8,
+            **point,
+        )
+        ax_cov.plot(baseline_x, row["coverage"], **point)
+
     if pick is not None:
-        ax_kldb.plot([pick["alpha"]], [pick["kldb_median"]], **diamond)
-        ax_cov.plot([pick["alpha"]], [pick["coverage"]], **diamond)
+        x = baseline_x if pick["alpha"] == BASELINE_ALPHA else pick["alpha"]
+        ax_kldb.plot([x], [pick["kldb_median"]], **diamond)
+        ax_cov.plot([x], [pick["coverage"]], **diamond)
 
 
 def _legend_handles(classifiers, styles, with_reference):
@@ -218,6 +252,17 @@ def plot_kldb_coverage_over_alpha(selection=None, show_real_reference=False):
     classifiers = sorted(df[CLASSIFIER_COL].unique())
     styles = {clf: SERIES_STYLES[i] for i, clf in enumerate(classifiers)}
 
+    # The baseline gets its own tick, off the sweep and past a gap.
+    guided_alphas = sorted(a for a in df[ALPHA_COL].unique() if a > BASELINE_ALPHA)
+    has_baseline = (df[ALPHA_COL] == BASELINE_ALPHA).any()
+    ticks = ([BASELINE_X] if has_baseline else []) + guided_alphas
+    tick_labels = ([BASELINE_LABEL] if has_baseline else []) + [f"{a:g}" for a in guided_alphas]
+    # Side by side within the slot, centred on the tick.
+    baseline_x = {
+        clf: BASELINE_X + (i - (len(classifiers) - 1) / 2) * BASELINE_DODGE for i, clf in enumerate(classifiers)
+    }
+    x_limits = (min(baseline_x.values()) - 0.008, guided_alphas[-1] + 0.008)
+
     with mpl.rc_context(paper_rc(FIG_SIZE_IN[0])):
         fig, axes = plt.subplots(
             2, len(groups), figsize=FIG_SIZE_IN, sharex=True, sharey="row", squeeze=False, layout="constrained"
@@ -231,19 +276,28 @@ def plot_kldb_coverage_over_alpha(selection=None, show_real_reference=False):
                 run = panel[panel[CLASSIFIER_COL] == clf].sort_values(ALPHA_COL)
                 if not run.empty:
                     _draw_series(
-                        ax_kldb, ax_cov, run, styles[clf], picks.get((group, clf)), real_kldb.get((group, clf))
+                        ax_kldb,
+                        ax_cov,
+                        run,
+                        styles[clf],
+                        picks.get((group, clf)),
+                        real_kldb.get((group, clf)),
+                        baseline_x[clf],
                     )
 
             title = f"({string.ascii_lowercase[col]}) {_subset_label(group)}"
             ax_kldb.set_title(textwrap.fill(title, width=32), color=INK, pad=4)
             ax_kldb.set_yscale("log")
             ax_cov.set_ylim(bottom=0)
-            ax_cov.set_xticks(sorted(df[ALPHA_COL].unique()))
-            ax_cov.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+            ax_cov.set_xticks(ticks, labels=tick_labels)
+            ax_cov.set_xlim(x_limits)
             _style_axes(ax_kldb)
             _style_axes(ax_cov)
 
-        # Rows share a scale, so only the left-hand panel is labelled.
+        # Rows share a scale, so only the left-hand panel is labelled. The KLDB
+        # limits are set from the data: autoscale overshoots by a factor once
+        # the baseline error bars are in the axes.
+        axes[0, 0].set_ylim(df["kldb_25"].min() / 1.25, df["kldb_75"].max() * 1.25)
         axes[0, 0].set_ylabel("median KLDB", color=INK)
         axes[1, 0].set_ylabel("coverage", color=INK)
         axes[0, 0].yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
@@ -292,7 +346,8 @@ def _caption(df, groups, reference):
         "Median KLDB (top, log scale) and coverage (bottom) as a function of the "
         f"guidance strength $\\alpha$, for each class subset: {subsets}. Shaded "
         "bands give the interquartile range (25th-75th percentile) of the per-image "
-        "KLDB. The KLDB axis is shared across subsets. Each point is one run over "
+        "KLDB; for the unguided run, detached at the left, the IQR is drawn as "
+        "whiskers. The KLDB axis is shared across subsets. Each point is one run over "
         f"N = {n_images} generated images (seed {seeds}). Diamonds mark the selected "
         f"$\\alpha^{{*}}$ per configuration: {SELECTION_RULE} {KLDB_TOL:.0%} of it."
     )

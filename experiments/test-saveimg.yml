@@ -1,0 +1,47 @@
+# Disk-footprint probe for save-images-disk. Generates 12 images at 512x512 and
+# writes images_synth.pt + images_real.pt to $FILESDIR/logs/<run-id>/, so we can
+# measure bytes/image and extrapolate to a full 2500-image run. Steps/scheduler
+# don't affect saved size (it's the decoded 512x512 tensor), so keep it fast.
+project: test_saveimg
+
+user-args:
+  device: cuda:0
+  seed: 28
+  batch-size: 2            # 32GB test card: keep well under OOM (disk size is batch-independent)
+  save-metrics-disk: False
+  save-images-disk: True
+  log-plots: False
+
+dataset:
+  name: ILSVRC/imagenet-1k
+  n_classes: 1000
+  split: train
+  num-images: 12            # matches cached imagenet-1k_train_12_207_208 (no streaming if volume attached)
+
+classifier:
+  name: google/vit-base-patch16-224
+  lib: transformers
+  calibrate: False
+
+diffusion:
+  pipeline: latentguidance
+  name: CompVis/stable-diffusion-v1-4
+  type: sd
+  scheduler: ddim
+  args:
+    num-inference-steps: 10
+    prompt-strategy: single
+    classes:
+      - golden retriever
+      - Labrador retriever
+    guidance: kldb
+    alpha: 0.01
+    guidance-freq: 5
+    guidance-scale: 7.5
+    guidance-rescale: 0.7
+    negative-prompt: ""
+
+evaluation:
+  num-images: 12            # 12 synthetic images generated + saved
+  viz-sample-size: 2
+  attr-map: False

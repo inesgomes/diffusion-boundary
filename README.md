@@ -46,3 +46,20 @@ HF_HUB_OFFLINE=True
 `python -m src --config experiments/<NAME>`
 
 Experiments are explained in `experiments/README.md`
+
+## BigGAN baseline
+
+To compare against a GAN baseline, the images are generated beforehand with `src/biggan.py`
+(`biggan-deep-256`) and saved to `$FILESDIR/biggan/<out>.pt`:
+
+```bash
+mkdir -p $FILESDIR/biggan
+python src/biggan.py --num_images 2504 --labels 207,208 --trunc 0.4 --batch_size 8 --out dogs_2500
+```
+
+`--labels` are ImageNet class ids, repeated cyclically until `num_images`, and must match the
+`diffusion.args.classes` of the experiment being compared against.
+
+To evaluate them, set `diffusion.images-path: biggan/dogs_2500.pt` in the experiment (see
+`experiments/README.md`) and run it as usual. The generation step is skipped and everything else
+works the same way.

@@ -16,7 +16,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
-from style import AXIS, CATEGORICAL, GRIDLINE, INK, INK_SECONDARY, paper_rc
+from style import (
+    AXIS,
+    CATEGORICAL,
+    GRIDLINE,
+    INK,
+    INK_SECONDARY,
+    TEXT_WIDTH_IN,
+    paper_rc,
+)
 
 REPORT_DIR = Path(__file__).resolve().parent
 RUNS_CSV = REPORT_DIR / "wandb" / "wandb-runs.csv"
@@ -42,14 +50,20 @@ CLASSIFIER_LABELS = {
     "google/vit-base-patch16-224": "ViT-B/16",
     "microsoft/resnet-50": "ResNet-50",
 }
+COVERAGE_SOURCE = "microsoft/resnet-50"  # the one run of a pair whose coverage is trusted
 # Unlisted subsets fall back to listing their class names.
 SUBSET_LABELS = {
-    ("golden retriever", "Labrador retriever"): "Dogs",
+    ("golden retriever", "Labrador retriever"): "Retrievers",
+    ("timber wolf", "Eskimo dog"): "Canines",
     ("leopard", "jaguar", "cheetah"): "Felines",
     ("ruddy turnstone", "red-backed sandpiper", "redshank", "dowitcher"): "Birds",
 }
 
-FIG_SIZE_IN = (7.8, 3.3)  # drawn wider than the page; include it at \textwidth
+# One column per subset. Both dimensions scale with the column count: drawing
+# wider is what paper_rc trades for smaller type on the page, so the drawn height
+# has to grow in step to keep the printed figure ~2.9 in tall.
+PANEL_WIDTH_IN = 2.6
+PANEL_HEIGHT_IN = 1.1
 
 # The unguided run is a baseline, not the first point of the sweep: it sits in
 # its own slot left of the gap, detached from the curve.
@@ -65,9 +79,9 @@ def _class_names(classes_json):
 
 
 def _subset_label(classes_json):
-    """Panel title, e.g. "Dogs (2 classes)"."""
+    """Panel title, e.g. "Retrievers (|C|=2)"."""
     names = _class_names(classes_json)
-    return f"{SUBSET_LABELS.get(names, ' · '.join(names))} ({len(names)} classes)"
+    return f"{SUBSET_LABELS.get(names, ' · '.join(names))} ($|C|={len(names)}$)"
 
 
 def _by_config(frame, column=None):
@@ -78,12 +92,21 @@ def _by_config(frame, column=None):
 
 
 def _load_runs():
-    """Load the sweep, one row per run."""
+    """Load the sweep, one row per run, with the unguided coverage deduplicated."""
     required = [CLASSES_COL, CLASSIFIER_COL, ALPHA_COL, "kldb_25", "kldb_median", "kldb_75", "coverage"]
     # The validity fraction is NaN for at least one run, so it cannot be required.
     optional = [RUN_ID_COL, VALIDITY_COL, "num-images", "seed"]
-    df = pd.read_csv(RUNS_CSV)
-    return df[required + optional].dropna(subset=required).sort_values(ALPHA_COL)
+    df = pd.read_csv(RUNS_CSV)[required + optional].dropna(subset=required)
+
+    # Unguided generation does not depend on the classifier, so its coverage is
+    # one number per subset and the logged ViT copy is unreliable: take
+    # COVERAGE_SOURCE's. Guided coverage genuinely differs and is left alone. A
+    # subset with no unguided source run keeps its own value.
+    unguided = df[ALPHA_COL] == BASELINE_ALPHA
+    source = df[unguided & (df[CLASSIFIER_COL] == COVERAGE_SOURCE)].set_index(CLASSES_COL)["coverage"]
+    shared = source.reindex(df.loc[unguided, CLASSES_COL]).to_numpy()
+    df.loc[unguided, "coverage"] = pd.Series(shared, index=df.index[unguided]).fillna(df.loc[unguided, "coverage"])
+    return df.sort_values(ALPHA_COL)
 
 
 SELECTION_RULE = "the lowest median KLDB, then the widest coverage among the alphas within"
@@ -169,10 +192,13 @@ def _style_axes(ax):
 
 def _draw_series(ax_kldb, ax_cov, run, style, pick=None, real_median=None, baseline_x=BASELINE_X):
     """One classifier's curves in one panel."""
+    # Sizes in points are drawn-size, so they need the same scale paper_rc applies
+    # to the type; without it a wider figure prints thinner marks.
+    scale = ax_kldb.figure.get_figwidth() / TEXT_WIDTH_IN
     line = {
         "markerfacecolor": "white",
         "markeredgecolor": style["color"],
-        "markeredgewidth": 0.8,
+        "markeredgewidth": 0.8 * scale,
         "zorder": 3,
         "clip_on": False,
         **style,
@@ -180,16 +206,16 @@ def _draw_series(ax_kldb, ax_cov, run, style, pick=None, real_median=None, basel
     diamond = {
         "marker": "D",
         "linestyle": "none",
-        "markersize": 4.5,
+        "markersize": 4.5 * scale,
         "color": style["color"],
-        "markeredgewidth": 1.0,
+        "markeredgewidth": 1.0 * scale,
         "zorder": 5,
         "clip_on": False,
     }
 
     if real_median is not None:
         # The gap to the curve is how far guidance moved the generated set.
-        ax_kldb.axhline(real_median, color=style["color"], linestyle=":", linewidth=1.0, zorder=1)
+        ax_kldb.axhline(real_median, color=style["color"], linestyle=":", linewidth=1.0 * scale, zorder=1)
 
     guided = run[run[ALPHA_COL] > BASELINE_ALPHA]
     ax_kldb.fill_between(
@@ -207,31 +233,40 @@ def _draw_series(ax_kldb, ax_cov, run, style, pick=None, real_median=None, basel
             baseline_x,
             row["kldb_median"],
             yerr=[[row["kldb_median"] - row["kldb_25"]], [row["kldb_75"] - row["kldb_median"]]],
-            capsize=2,
-            elinewidth=1.0,
-            capthick=0.8,
+            capsize=2 * scale,
+            elinewidth=1.0 * scale,
+            capthick=0.8 * scale,
             **point,
         )
-        ax_cov.plot(baseline_x, row["coverage"], **point)
+        # Undodged, and unfilled so the markers stack rather than hide each other:
+        # unguided coverage is one number, the same for every classifier.
+        ax_cov.plot(BASELINE_X, row["coverage"], **{**point, "markerfacecolor": "none"})
 
     if pick is not None:
-        x = baseline_x if pick["alpha"] == BASELINE_ALPHA else pick["alpha"]
-        ax_kldb.plot([x], [pick["kldb_median"]], **diamond)
-        ax_cov.plot([x], [pick["coverage"]], **diamond)
+        alpha_is_baseline = pick["alpha"] == BASELINE_ALPHA
+        ax_kldb.plot([baseline_x if alpha_is_baseline else pick["alpha"]], [pick["kldb_median"]], **diamond)
+        ax_cov.plot([BASELINE_X if alpha_is_baseline else pick["alpha"]], [pick["coverage"]], **diamond)
 
 
-def _legend_handles(classifiers, styles, with_reference):
+def _legend_handles(classifiers, styles, with_reference, scale=1.0):
     handles = [
         Line2D(
-            [], [], markerfacecolor="white", markeredgewidth=0.8, label=CLASSIFIER_LABELS.get(clf, clf), **styles[clf]
+            [],
+            [],
+            markerfacecolor="white",
+            markeredgewidth=0.8 * scale,
+            label=CLASSIFIER_LABELS.get(clf, clf),
+            **styles[clf],
         )
         for clf in classifiers
     ]
     handles.append(
-        Line2D([], [], color=INK, marker="D", linestyle="none", markersize=4.5, label=r"selected $\alpha^{*}$")
+        Line2D([], [], color=INK, marker="D", linestyle="none", markersize=4.5 * scale, label=r"selected $\alpha^{*}$")
     )
     if with_reference:
-        handles.append(Line2D([], [], color=INK, linestyle=":", linewidth=1.0, label="real ImageNet median KLDB"))
+        handles.append(
+            Line2D([], [], color=INK, linestyle=":", linewidth=1.0 * scale, label="real ImageNet median KLDB")
+        )
     return handles
 
 
@@ -247,8 +282,8 @@ def plot_kldb_coverage_over_alpha(selection=None, show_real_reference=False):
     reference = real_kldb_reference(selection) if show_real_reference else pd.DataFrame()
     real_kldb = _by_config(reference, "real_kldb_median")
 
-    # Panels ordered by subset size, coarse -> fine.
-    groups = sorted(df[CLASSES_COL].unique(), key=lambda c: (len(_class_names(c)), c))
+    # Panels ordered by subset size, coarse -> fine, then by the name on the panel.
+    groups = sorted(df[CLASSES_COL].unique(), key=lambda c: (len(_class_names(c)), _subset_label(c)))
     classifiers = sorted(df[CLASSIFIER_COL].unique())
     styles = {clf: SERIES_STYLES[i] for i, clf in enumerate(classifiers)}
 
@@ -263,9 +298,10 @@ def plot_kldb_coverage_over_alpha(selection=None, show_real_reference=False):
     }
     x_limits = (min(baseline_x.values()) - 0.008, guided_alphas[-1] + 0.008)
 
-    with mpl.rc_context(paper_rc(FIG_SIZE_IN[0])):
+    fig_size = (PANEL_WIDTH_IN * len(groups), PANEL_HEIGHT_IN * len(groups))
+    with mpl.rc_context(paper_rc(fig_size[0])):
         fig, axes = plt.subplots(
-            2, len(groups), figsize=FIG_SIZE_IN, sharex=True, sharey="row", squeeze=False, layout="constrained"
+            2, len(groups), figsize=fig_size, sharex=True, sharey="row", squeeze=False, layout="constrained"
         )
         fig.set_layout_engine("constrained", w_pad=0.02, h_pad=0.02, hspace=0.05, wspace=0.04)
 
@@ -288,27 +324,31 @@ def plot_kldb_coverage_over_alpha(selection=None, show_real_reference=False):
             title = f"({string.ascii_lowercase[col]}) {_subset_label(group)}"
             ax_kldb.set_title(textwrap.fill(title, width=32), color=INK, pad=4)
             ax_kldb.set_yscale("log")
-            ax_cov.set_ylim(bottom=0)
             ax_cov.set_xticks(ticks, labels=tick_labels)
             ax_cov.set_xlim(x_limits)
             _style_axes(ax_kldb)
             _style_axes(ax_cov)
 
-        # Rows share a scale, so only the left-hand panel is labelled. The KLDB
-        # limits are set from the data: autoscale overshoots by a factor once
-        # the baseline error bars are in the axes.
+        # Rows share a scale, so only the left-hand panel is labelled. Both rows'
+        # limits come from the data rather than autoscale: on the log row it
+        # overshoots by a factor once the baseline error bars are in the axes, and
+        # any set_ylim call freezes a shared row at the first column it saw.
         axes[0, 0].set_ylim(df["kldb_25"].min() / 1.25, df["kldb_75"].max() * 1.25)
+        axes[1, 0].set_ylim(0, df["coverage"].max() * 1.08)
         axes[0, 0].set_ylabel("median KLDB", color=INK)
         axes[1, 0].set_ylabel("coverage", color=INK)
         axes[0, 0].yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0, 2.0, 5.0)))
         axes[0, 0].yaxis.set_minor_formatter(NullFormatter())
         axes[0, 0].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
         axes[1, 0].yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0%}"))
-        fig.supxlabel(r"guidance strength $\alpha$", fontsize=8.5, color=INK)
+        # rcParams, not a literal: supxlabel has to scale with the drawn width
+        # like every other label.
+        fig.supxlabel(r"guidance strength $\alpha$", fontsize=mpl.rcParams["axes.labelsize"], color=INK)
 
         # Anchored below the canvas, not "outside lower center": constrained
         # layout gives that and the supxlabel the same band, and they collide.
-        handles = _legend_handles(classifiers, styles, with_reference=bool(real_kldb))
+        scale = fig_size[0] / TEXT_WIDTH_IN
+        handles = _legend_handles(classifiers, styles, bool(real_kldb), scale)
         fig.legend(
             handles=handles,
             loc="upper center",

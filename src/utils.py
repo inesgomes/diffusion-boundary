@@ -3,7 +3,7 @@
 import os
 import random
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 import yaml
 
@@ -13,7 +13,7 @@ SCHEDULERS = ("klms", "ddim")
 
 def generate_run_id():
     """Generate a unique run id based on the current time."""
-    current_time = datetime.utcnow()
+    current_time = datetime.now(timezone.utc)
     seconds_since_midnight = current_time.hour * 3600 + current_time.minute * 60 + current_time.second
     return f"{current_time.strftime('%Y-%m-%d')}T{seconds_since_midnight}"
 
@@ -49,6 +49,22 @@ def set_configuration_default_values(config):
         config["evaluation"]["certainty-threshold"] = 0.8
 
     return config
+
+
+def resolve_images_path(images_path):
+    """Resolve the path of images generated beforehand, relative paths are inside FILESDIR."""
+    if not images_path:
+        return None
+
+    if not os.path.isabs(images_path):
+        images_path = os.path.join(os.getenv("FILESDIR", ""), images_path)
+
+    # fail before loading models and starting the wandb run
+    if not os.path.isfile(images_path):
+        print(f"Images file {images_path} not found.")
+        sys.exit(1)
+
+    return images_path
 
 
 def load_configurations(config_path):
@@ -94,6 +110,9 @@ def load_configurations(config_path):
         config["diffusion"]["args"]["guidance"] = "noguidance"
     if "negative-prompt" not in config["diffusion"]["args"]:
         config["diffusion"]["args"]["negative-prompt"] = ""
+
+    # images generated beforehand (e.g. the BigGAN baseline) are loaded instead of being generated
+    config["diffusion"]["images-path"] = resolve_images_path(config["diffusion"].get("images-path"))
 
     # transform certain arguments to list
     if not isinstance(config["diffusion"]["args"]["guidance"], list):

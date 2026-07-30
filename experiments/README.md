@@ -31,6 +31,7 @@ diffusion:
   name: <name> # LDM name from HuggingFace
   type: sd
   scheduler: <klms or ddim or list of them> # sampler used for the "sd" pipelines. Default=klms
+  images-path: <path> # optional. Loads images generated beforehand instead of generating them.
   args:
     num-inference-steps: <int> # number of timesteps (T)
     prompt-strategy: <classes> # it means that we will use the classes names concatened by "and". Other types of prompts are not yet supported

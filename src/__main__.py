@@ -3,7 +3,8 @@
 import argparse
 import math
 import os
-from datetime import datetime
+import sys
+from datetime import datetime, timezone
 
 import pandas as pd
 import torch
@@ -54,6 +55,21 @@ def save_images_to_disk(images, title):
     os.makedirs(path, exist_ok=True)
     torch.save(images, f"{path}/images_{title}.pt")
     print(f"{title} images saved at {path}")
+
+
+def load_images_from_disk(path, num_images):
+    """Load images generated beforehand, instead of generating them with the diffusion pipeline."""
+    with open(path, "rb") as file:
+        # the file holds pickled PIL images, not tensors, so weights_only cannot be used
+        images = torch.load(file, weights_only=False)
+
+    if len(images) < num_images:
+        print(f"{path} only has {len(images)} images, but {num_images} are needed.")
+        sys.exit(1)
+
+    print(f"Loaded {num_images} images from {path}")
+    # extra images are dropped, generation scripts round the total up to the batch size
+    return images[:num_images]
 
 
 def save_results_to_disk(results: pd.DataFrame, name: str):
@@ -499,22 +515,19 @@ def stress_test_classifier(
         None,
     )
 
-    # uncomment if we want to get the images from disk
-    # images_path = os.getenv("FILESDIR") + "/logs/" + run_id + "/images_synth.pt"
-    # images_path = os.getenv("FILESDIR") + "/biggan/birds_2500.pt"
-    # with open(images_path, "rb") as f:
-    #  syn_images = torch.load(f)
-
-    # generate images
-    syn_images = generate_images(
-        diffusion_config,
-        classifier,
-        synth_dataset,
-        evaluation_config["num-images"],
-        default_configs["batch-size"],
-        default_configs["seed"],
-        default_configs["device"],
-    )
+    # get the images from disk, if generated beforehand, otherwise generate them
+    if diffusion_config["images-path"]:
+        syn_images = load_images_from_disk(diffusion_config["images-path"], evaluation_config["num-images"])
+    else:
+        syn_images = generate_images(
+            diffusion_config,
+            classifier,
+            synth_dataset,
+            evaluation_config["num-images"],
+            default_configs["batch-size"],
+            default_configs["seed"],
+            default_configs["device"],
+        )
     synth_dataset.set_images(syn_images)
 
     torch.cuda.empty_cache()
@@ -606,10 +619,16 @@ def main(configuration):
     scheduler = diffusion_config["scheduler"]
 
     # the group will be a timestamp that this main started, so that we can join multiple runs
-    group_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    # UTC then back to local: an aware timestamp that still reads as local time
+    group_name = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d_%H-%M-%S")
 
     i = 1
     max_i = len(guidance_metric) * len(alpha) * len(guidance_scale) * len(guidance_freq) * len(scheduler)
+
+    # the grid only changes how images are generated, so it has no effect on images loaded from disk
+    if diffusion_config["images-path"] and max_i > 1:
+        print(f"Warning: images come from disk, the {max_i} parameter combinations will evaluate the same images.")
+
     for scheduler_value in scheduler:
         for guidance_metric_value in guidance_metric:
             for alpha_value in alpha:

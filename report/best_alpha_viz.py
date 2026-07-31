@@ -105,7 +105,9 @@ def _load_runs():
     """Load the sweep, one row per run, with the unguided coverage deduplicated."""
     required = [CLASSES_COL, CLASSIFIER_COL, ALPHA_COL, "kldb_25", "kldb_median", "kldb_75", "coverage"]
     # The validity fraction is NaN for at least one run, so it cannot be required.
-    optional = [RUN_ID_COL, VALIDITY_COL, "num-images", "seed"]
+    # fid and density are here for cost_panel_viz; carrying them costs this figure
+    # nothing and keeps the run table behind one loader.
+    optional = [RUN_ID_COL, VALIDITY_COL, "num-images", "seed", "fid", "density"]
     df = pd.read_csv(RUNS_CSV)[required + optional].dropna(subset=required)
 
     # Unguided generation does not depend on the classifier, so its coverage is

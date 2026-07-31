@@ -6,12 +6,13 @@ under colourblind simulation, in greyscale, and at print size.
 ```bash
 python best_alpha_viz.py     # KLDB + coverage over the guidance sweep
 python ecdf_viz.py           # per-image KLDB ECDF, unguided vs alpha*
+python cost_panel_viz.py     # benefit and cost at alpha*, per configuration
 python toy_dataset_viz.py    # toy decision boundaries + boundary-proximity metrics
 python real_baseline.py      # real-images reference per unguided run -> real_baseline.csv
 python topk_subset.py ID     # top-|C|-subset percentage of one run
 ```
 
-The three figure scripts write timestamped PNG + PDF into `figures/`, print the
+The four figure scripts write timestamped PNG + PDF into `figures/`, print the
 paths, and print the caption to paste into the paper. `style.py` holds the shared
 palette, typography and print scale — import from it, don't redefine.
 
@@ -32,8 +33,8 @@ Two sources are read:
   with it unset or the drive unmounted, the scripts that need it exit with the
   unreadable path rather than a traceback.
 
-`best_alpha_viz.py` and `toy_dataset_viz.py` take no arguments; the other three
-are detailed below.
+`best_alpha_viz.py`, `cost_panel_viz.py` and `toy_dataset_viz.py` take no
+arguments; the other three are detailed below.
 
 ### `ecdf_viz.py`
 
@@ -45,6 +46,17 @@ drops the real-images reference curves, the only part that reads
 `results_real.parquet`. Prints a per-configuration table: median shift,
 best-of-`N`, KS, worst ECDF deficit, validity, share below the real median. The
 best-of-`N` metric is defined in the caption the script prints.
+
+### `cost_panel_viz.py`
+
+One row per (subset, classifier), everything a ratio to the matching unguided
+run. Wants `FILESDIR`, but only for the ImageNet-1k crosses in panel (a); without
+it they are dropped and the rest is unaffected.
+
+`alpha*` comes from `best_alpha_viz.select_best_alpha`, the same rule the ECDF
+figure follows, not from the run table's hand-written `Notes`. `BIGGAN_KLDB` is
+the one input not in `wandb-runs.csv`, transcribed from the results table and
+keyed by `(subset name, classifier label)`; emptying it drops that series.
 
 ### `toy_dataset_viz.py`
 

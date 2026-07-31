@@ -84,6 +84,16 @@ def _subset_label(classes_json):
     return f"{SUBSET_LABELS.get(names, ' · '.join(names))} ($|C|={len(names)}$)"
 
 
+def subset_sort_key(classes_json):
+    """Panel order for the audited subsets: coarse -> fine, then by label.
+
+    Shared so that every figure letters its panels the same way. Two figures
+    sorting subsets by their own rule agree only until a subset is renamed, and
+    then the captions cross-reference panels that have swapped.
+    """
+    return (len(_class_names(classes_json)), _subset_label(classes_json))
+
+
 def _by_config(frame, column=None):
     """Index a per-configuration frame by (classes, classifier)."""
     return {
@@ -283,7 +293,7 @@ def plot_kldb_coverage_over_alpha(selection=None, show_real_reference=False):
     real_kldb = _by_config(reference, "real_kldb_median")
 
     # Panels ordered by subset size, coarse -> fine, then by the name on the panel.
-    groups = sorted(df[CLASSES_COL].unique(), key=lambda c: (len(_class_names(c)), _subset_label(c)))
+    groups = sorted(df[CLASSES_COL].unique(), key=subset_sort_key)
     classifiers = sorted(df[CLASSIFIER_COL].unique())
     styles = {clf: SERIES_STYLES[i] for i, clf in enumerate(classifiers)}
 

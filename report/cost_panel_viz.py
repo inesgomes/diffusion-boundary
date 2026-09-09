@@ -1,7 +1,7 @@
 """Benefit and cost of guidance at alpha*, one row per (subset, classifier).
 
 Panel (a) is the median KLDB at alpha* over the same configuration's unguided
-median, with real ImageNet-1k and BigGAN on the same scale; panel (b) is FID,
+median, with ImageNet-1k and BigGAN on the same scale; panel (b) is FID,
 density and coverage at alpha* over the unguided run, oriented so higher is
 better, which inverts FID. alpha* comes from best_alpha_viz.select_best_alpha.
 
@@ -39,7 +39,7 @@ from matplotlib.ticker import FuncFormatter
 from style import CATEGORICAL, GRIDLINE, INK, INK_SECONDARY, TEXT_WIDTH_IN, paper_rc
 
 GUIDED = r"Stress Test Guidance at $\alpha^{*}$"
-REAL = "reference ImageNet-1k"
+REAL = "ImageNet-1k"
 BIGGAN = "BigGAN"
 
 # Median KLDB of BigGAN samples of the audited classes. The one input not in
@@ -68,8 +68,10 @@ QUALITY_SERIES = [
 INVERTED = {"FID"}  # the one metric a lower raw value is better for
 MARKER_SIZE = 3.4
 
+PANEL_TITLES = ("decision boundary proximity", r"image quality at $\alpha^{*}$")
+
 PANEL_WIDTH_IN = 3.0
-ROW_HEIGHT_IN = 0.19
+ROW_HEIGHT_IN = 0.16
 CHROME_HEIGHT_IN = 0.95  # titles, x axis, legends: everything that is not a row
 
 
@@ -174,12 +176,12 @@ def _draw(ax, table, y, series, span, scale):
     ax.legend(
         handles=[Line2D([], [], label=name, **_marker(*style, scale)) for name, *style in series],
         loc="upper center",
-        bbox_to_anchor=(0.5, -0.13),
+        bbox_to_anchor=(0.5, -0.22),
         ncol=len(series),
         frameon=False,
-        handlelength=1.4,
-        handletextpad=0.4,
-        columnspacing=1.2,
+        handlelength=1.6,
+        handletextpad=0.6,
+        columnspacing=2.4,
         borderpad=0.0,
         labelcolor=INK,
     )
@@ -188,6 +190,19 @@ def _draw(ax, table, y, series, span, scale):
 def _frame(ax, table, y, scale):
     """Draw the chrome both panels share: categorical rows, vertical grid, unity marked."""
     ax.axvline(1.0, color=INK_SECONDARY, linestyle=(0, (3, 3)), linewidth=0.6 * scale, zorder=2)
+    # The two panels vary different things but share this baseline, so it is
+    # named in both rather than left to the axis labels.
+    ax.annotate(
+        "unguided",
+        xy=(1.0, -0.5),
+        xytext=(-3, 0),
+        textcoords="offset points",
+        ha="right",
+        va="center",
+        fontsize="small",
+        color=INK_SECONDARY,
+        zorder=8,
+    )
     ax.set_yticks(y)
     ax.set_ylim(-0.7, len(table) - 0.3)
     _style_axes(ax)
@@ -231,13 +246,13 @@ def plot_benefit_cost(table):
 
         _proximity(axes[0], table, y, scale)
         _quality(axes[1], table, y, scale)
-        for i, (ax, title) in enumerate(zip(axes, ("boundary proximity gained", "image quality retained"))):
+        for i, (ax, title) in enumerate(zip(axes, PANEL_TITLES)):
             _frame(ax, table, y, scale)
             ax.set_title(f"({string.ascii_lowercase[i]}) {title}", color=INK, pad=4)
 
         # Set once, on the shared axis: blanking the right-hand panel's labels
         # with set_yticklabels([]) would blank the left-hand panel's too.
-        axes[0].set_yticklabels([f"{row.subset} · {row.classifier}" for row in table.itertuples()])
+        axes[0].set_yticklabels([f"{row.subset} | {row.classifier}" for row in table.itertuples()])
         axes[1].tick_params(labelleft=False)
 
         FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -266,7 +281,10 @@ def _caption(table):
     )
     references = [name for name in (BIGGAN, REAL) if table[name].notna().any()]
     if references:
-        caption += f" The {' and '.join(references)} marks in (a) are the same ratio for those sources."
+        caption += (
+            f" The {' and '.join(references)} marks in (a) are the same ratio for those image sources; (b) holds "
+            "the source fixed at the guided run and varies the metric instead."
+        )
     return caption
 
 

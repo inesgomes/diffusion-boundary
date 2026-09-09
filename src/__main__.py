@@ -541,7 +541,7 @@ def stress_test_classifier(
     # save images to disk, if needed
     if default_configs["save-images-disk"]:
         save_images_to_disk(syn_images, "synth")
-        save_images_to_disk(real_images, "real")
+        # save_images_to_disk(real_images, "real")
 
     # evaluate both datasets
     args = {**default_configs, **evaluation_config, **dataset_config}

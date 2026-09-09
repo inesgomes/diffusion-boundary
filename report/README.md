@@ -10,6 +10,7 @@ python cost_panel_viz.py     # benefit and cost at alpha*, per configuration
 python toy_dataset_viz.py    # toy decision boundaries + boundary-proximity metrics
 python real_baseline.py      # real-images reference per unguided run -> real_baseline.csv
 python topk_subset.py ID     # top-|C|-subset percentage of one run
+python image_grid.py ID SEED # grid of images sampled from one run's saved images
 ```
 
 The four figure scripts write timestamped PNG + PDF into `figures/`, print the
@@ -34,7 +35,7 @@ Two sources are read:
   unreadable path rather than a traceback.
 
 `best_alpha_viz.py`, `cost_panel_viz.py` and `toy_dataset_viz.py` take no
-arguments; the other three are detailed below.
+arguments; the other four are detailed below.
 
 ### `ecdf_viz.py`
 
@@ -44,8 +45,8 @@ the `alpha*` that `best_alpha_viz.select_best_alpha` picks for it. A
 configuration with no unguided run is named on stdout and skipped. `--no-real`
 drops the real-images reference curves, the only part that reads
 `results_real.parquet`. Prints a per-configuration table: median shift,
-best-of-`N`, KS, worst ECDF deficit, validity, share below the real median. The
-best-of-`N` metric is defined in the caption the script prints.
+best-of-`M`, KS, worst ECDF deficit, validity, share below the real median. The
+best-of-`M` metric is defined in the caption the script prints.
 
 ### `cost_panel_viz.py`
 
@@ -108,6 +109,38 @@ parquet is an error, not a silent zero.
 
 Use `--class` for a run that is not in `wandb-runs.csv`: most of the run
 directories under `FILESDIR/logs/` are not.
+
+### `image_grid.py`
+
+```bash
+python image_grid.py vvry6muo 42                        # 10x10 of the synthetic images
+python image_grid.py vvry6muo 42 --kind real --cell-size 512
+python image_grid.py vvry6muo 42 --num-images 25 --n-cols 5
+```
+
+| argument | meaning |
+|---|---|
+| `run_id` | required |
+| `seed` | required, seeds the random selection |
+| `--kind synth\|real` | which saved set, default `synth` |
+| `--num-images` | how many to sample, default 100 |
+| `--n-cols` | images per row, default 10 |
+| `--cell-size` | cell side in pixels, default the largest sampled image's own size |
+| `--padding` | gap between images in pixels, default 4 |
+| `--out` | output file, default `figures/grid_<kind>_<run_id>_seed<seed>.png` |
+
+Needs `FILESDIR` and `torch`, so unlike the rest of this folder it wants the
+project's `dfst` environment: it reads `FILESDIR/logs/<run_id>/images_{synth,real}.pt`,
+which only the runs with `save-images-disk: True` have, and those files are
+pickled PIL images. Prints the indices it sampled, so an image in the grid can be
+traced back to its row in `results_<kind>.parquet`.
+
+Not a paper figure — a photo montage to look at, so it is written as PNG only,
+lossless and at the images' native resolution. Its name is keyed by run and seed
+rather than timestamped, since the same pair always yields the same figure; a
+re-run overwrites it. `--cell-size` matters for `--kind real`: those are ImageNet
+images of mixed sizes and a single large one otherwise sets the scale of the
+whole grid.
 
 ## Colour
 

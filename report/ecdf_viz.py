@@ -52,9 +52,9 @@ PANEL_HEIGHT_IN = 1.9
 # images swapping order in a tail, not a trade-off worth naming.
 CROSSING_TOL = 0.01
 
-# best-of-N is reported as "> CAP" once p falls below 1/CAP: past that the
+# best-of-M is reported as "> CAP" once q falls below 1/CAP: past that the
 # estimate rests on a handful of images and the ceiling is noise.
-BEST_OF_N_CAP = 100
+BEST_OF_M_CAP = 100
 
 # Deciles, marked on each curve: markers, not colour, carry identity in print.
 DECILES = np.arange(0.1, 0.91, 0.1)
@@ -89,21 +89,21 @@ def _ks_statistic(a, b):
     return float(np.max(np.abs(_ecdf_gap(a, b))))
 
 
-def best_of_n(reference, target_median):
-    """Express ``target_median`` as a best-of-N draw from ``reference``.
+def best_of_m(reference, target_median):
+    """Express ``target_median`` as a best-of-M draw from ``reference``.
 
-    ``p`` is the fraction of reference images below the target median, so
-    ``N = ceil(1 / p)`` is how many reference samples one would draw, keeping
+    ``q`` is the fraction of reference images below the target median, so
+    ``M = ceil(1 / q)`` is how many reference samples one would draw, keeping
     only the lowest-KLDB one, to match a typical target image. Returns
-    ``(p, N)``, with ``N`` None past the cap.
+    ``(q, M)``, with ``M`` None past the cap.
     """
-    p = float(np.mean(reference <= target_median))
-    return p, (None if p < 1 / BEST_OF_N_CAP else int(np.ceil(1 / p)))
+    q = float(np.mean(reference <= target_median))
+    return q, (None if q < 1 / BEST_OF_M_CAP else int(np.ceil(1 / q)))
 
 
-def _n_text(n):
-    """Render a best-of-N, capped. The one spelling of it, used by both panel and table."""
-    return f"> {BEST_OF_N_CAP}" if n is None else str(n)
+def _m_text(m):
+    """Render a best-of-M, capped. The one spelling of it, used by both panel and table."""
+    return f"> {BEST_OF_M_CAP}" if m is None else str(m)
 
 
 def configurations(runs=None, selection=None):
@@ -158,7 +158,7 @@ def _panel_stats(pair):
     gap = _ecdf_gap(baseline, best)
     # Unguided sampling is the reference: how many standard samples buy one
     # image as close to the boundary as a typical guided one.
-    p_ref, n = best_of_n(baseline, best_median)
+    q_ref, m = best_of_m(baseline, best_median)
     return {
         "subset": _subset_label(pair["classes"]).replace("$", ""),
         "classifier": CLASSIFIER_LABELS.get(pair["classifier"], pair["classifier"]),
@@ -167,8 +167,8 @@ def _panel_stats(pair):
         "kldb_median_0": baseline_median,
         "kldb_median_best": best_median,
         "median_change": best_median / baseline_median - 1,
-        "p_ref": p_ref,
-        "best_of_n": _n_text(n),
+        "q_ref": q_ref,
+        "best_of_m": _m_text(m),
         "ks": float(np.max(np.abs(gap))),
         "worst_deficit": float(max(0.0, -gap.min())),
         "validity_0": pair["baseline"][VALIDITY_COL],
@@ -204,15 +204,15 @@ def _draw_ecdf(ax, values, style, scale, with_deciles=True):
 
 
 def _annotate_panel(ax, stats_row):
-    """Name the panel's alpha*, median shift and best-of-N, in the corner an ECDF leaves empty.
+    """Name the panel's alpha*, median shift and best-of-M, in the corner an ECDF leaves empty.
 
     Reads the same row the table and the caption are built from, so the figure
     cannot disagree with its own numbers.
     """
     ax.axhline(0.5, color=INK_SECONDARY, linestyle=(0, (1, 3)), linewidth=0.6, zorder=1)
     # "12" needs the relation spelled out, "> 100" already carries one.
-    n_text = stats_row["best_of_n"]
-    n_text = f"= {n_text}" if n_text.isdigit() else n_text
+    m_text = stats_row["best_of_m"]
+    m_text = f"= {m_text}" if m_text.isdigit() else m_text
     # Top left, not bottom right: both corners are off the curves for an ECDF,
     # but the right-hand one is where the unguided curve climbs once a panel's
     # KLDB runs high, and the block lands on it.
@@ -221,7 +221,7 @@ def _annotate_panel(ax, stats_row):
         0.97,
         f"$\\alpha^{{*}} = {stats_row['alpha*']:g}$"
         f"\nmedian {stats_row['median_change']:+.0%}"
-        f"\nbest-of-$N$ {n_text}",
+        f"\nbest-of-$M$ {m_text}",
         transform=ax.transAxes,
         ha="left",
         va="top",
@@ -360,10 +360,10 @@ def _caption(pairs, subsets, stats):
         f"one panel per class subset - {labels} - and per classifier (rows). A curve further left probes the "
         "decision boundary harder; markers give the deciles, the dotted line the median. Each curve is one run "
         f"over N = {n_images} generated images, and the KLDB axis is shared across panels. Selected "
-        f"$\\alpha^{{*}}$: {alphas}. Each panel also gives a best-of-$N$ equivalent, which states the guided "
-        "median relative to unguided sampling rather than as an absolute KLDB: with $p$ the fraction of "
-        f"unguided images below the guided median, $N = \\lceil 1/p \\rceil$ unguided draws - keeping only the "
-        f"lowest-KLDB one - match a typical guided image ($N > {BEST_OF_N_CAP}$ when $p < {1 / BEST_OF_N_CAP:g}$)."
+        f"$\\alpha^{{*}}$: {alphas}. Each panel also gives a best-of-$M$ equivalent, which states the guided "
+        "median relative to unguided sampling rather than as an absolute KLDB: with $q$ the fraction of "
+        f"unguided images below the guided median, $M = \\lceil 1/q \\rceil$ unguided draws - keeping only the "
+        f"lowest-KLDB one - match a typical guided image ($M > {BEST_OF_M_CAP}$ when $q < {1 / BEST_OF_M_CAP:g}$)."
     )
     worst = stats["worst_deficit"].max()
     if worst <= CROSSING_TOL:

@@ -1,6 +1,7 @@
 """This is the main file for the diffusion-boundary package."""
 
 import argparse
+import itertools
 import math
 import os
 import sys
@@ -245,6 +246,7 @@ def create_arguments(pipeline_name, classifier, dataset, diffusion_arguments):
                 "transformation": dataset,
                 "guidance_type": diffusion_arguments["guidance"],
                 "guidance_freq": diffusion_arguments["guidance-freq"],
+                "guidance_schedule": diffusion_arguments["guidance-schedule"],
                 "alpha": diffusion_arguments["alpha"],
             }
         )
@@ -616,6 +618,7 @@ def main(configuration):
     alpha = diffusion_config["args"]["alpha"]
     guidance_scale = diffusion_config["args"]["guidance-scale"]
     guidance_freq = diffusion_config["args"]["guidance-freq"]
+    guidance_schedule = diffusion_config["args"]["guidance-schedule"]
     scheduler = diffusion_config["scheduler"]
 
     # the group will be a timestamp that this main started, so that we can join multiple runs
@@ -623,35 +626,47 @@ def main(configuration):
     group_name = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d_%H-%M-%S")
 
     i = 1
-    max_i = len(guidance_metric) * len(alpha) * len(guidance_scale) * len(guidance_freq) * len(scheduler)
+    max_i = (
+        len(guidance_metric)
+        * len(alpha)
+        * len(guidance_scale)
+        * len(guidance_freq)
+        * len(guidance_schedule)
+        * len(scheduler)
+    )
 
     # the grid only changes how images are generated, so it has no effect on images loaded from disk
     if diffusion_config["images-path"] and max_i > 1:
         print(f"Warning: images come from disk, the {max_i} parameter combinations will evaluate the same images.")
 
-    for scheduler_value in scheduler:
-        for guidance_metric_value in guidance_metric:
-            for alpha_value in alpha:
-                for guidance_scale_value in guidance_scale:
-                    for guidance_freq_value in guidance_freq:
-                        diffusion_config["scheduler"] = scheduler_value
-                        diffusion_config["args"]["guidance"] = guidance_metric_value
-                        diffusion_config["args"]["alpha"] = alpha_value
-                        diffusion_config["args"]["guidance-scale"] = guidance_scale_value
-                        diffusion_config["args"]["guidance-freq"] = guidance_freq_value
+    # same iteration order as nesting the loops, scheduler outermost
+    for (
+        scheduler_value,
+        guidance_metric_value,
+        alpha_value,
+        guidance_scale_value,
+        guidance_freq_value,
+        guidance_schedule_value,
+    ) in itertools.product(scheduler, guidance_metric, alpha, guidance_scale, guidance_freq, guidance_schedule):
+        diffusion_config["scheduler"] = scheduler_value
+        diffusion_config["args"]["guidance"] = guidance_metric_value
+        diffusion_config["args"]["alpha"] = alpha_value
+        diffusion_config["args"]["guidance-scale"] = guidance_scale_value
+        diffusion_config["args"]["guidance-freq"] = guidance_freq_value
+        diffusion_config["args"]["guidance-schedule"] = guidance_schedule_value
 
-                        # apply stress testing
-                        print(f"Starting stress test {i}/{max_i}...")
-                        stress_test_classifier(
-                            configuration["project"],
-                            group_name,
-                            configuration["user-args"],
-                            configuration["dataset"],
-                            configuration["classifier"],
-                            diffusion_config,
-                            configuration["evaluation"],
-                        )
-                        i += 1
+        # apply stress testing
+        print(f"Starting stress test {i}/{max_i}...")
+        stress_test_classifier(
+            configuration["project"],
+            group_name,
+            configuration["user-args"],
+            configuration["dataset"],
+            configuration["classifier"],
+            diffusion_config,
+            configuration["evaluation"],
+        )
+        i += 1
 
 
 if __name__ == "__main__":

@@ -54,7 +54,7 @@ COVERAGE_SOURCE = "microsoft/resnet-50"  # the one run of a pair whose coverage 
 # Unlisted subsets fall back to listing their class names.
 SUBSET_LABELS = {
     ("golden retriever", "Labrador retriever"): "Retrievers",
-    ("timber wolf", "Eskimo dog"): "Canines",
+    ("timber wolf", "Siberian husky"): "Canines",
     ("leopard", "jaguar", "cheetah"): "Felines",
     ("ruddy turnstone", "red-backed sandpiper", "redshank", "dowitcher"): "Birds",
 }

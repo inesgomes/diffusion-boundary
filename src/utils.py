@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 
 import yaml
 
+from src.pipelines.schedules import GUIDANCE_SCHEDULES
+
 # schedulers that can be selected in the configuration file (only used by the "sd" pipelines)
 SCHEDULERS = ("klms", "ddim")
 
@@ -67,6 +69,30 @@ def resolve_images_path(images_path):
     return images_path
 
 
+def prepare_diffusion_grid(diffusion_config):
+    """Transform the grid parameters to lists and validate the scheduler and guidance schedule names."""
+    # transform certain arguments to list
+    for key in ("guidance", "alpha", "guidance-scale", "guidance-freq", "guidance-schedule"):
+        if not isinstance(diffusion_config["args"][key], list):
+            diffusion_config["args"][key] = [diffusion_config["args"][key]]
+    if not isinstance(diffusion_config["scheduler"], list):
+        diffusion_config["scheduler"] = [diffusion_config["scheduler"]]
+
+    # the scheduler drives the x_0 prediction used by the guidance, so only known ones are accepted
+    unknown = [name for name in diffusion_config["scheduler"] if name not in SCHEDULERS]
+    if unknown:
+        print(f"Unknown scheduler(s) {unknown}. Valid options are {list(SCHEDULERS)}.")
+        sys.exit(1)
+
+    # a typo here would otherwise only fail after the models are loaded and the run has started
+    unknown = [name for name in diffusion_config["args"]["guidance-schedule"] if name not in GUIDANCE_SCHEDULES]
+    if unknown:
+        print(f"Unknown guidance schedule(s) {unknown}. Valid options are {list(GUIDANCE_SCHEDULES)}.")
+        sys.exit(1)
+
+    return diffusion_config
+
+
 def load_configurations(config_path):
     """Load configuration file from path and modify accondingly."""
     try:
@@ -110,27 +136,14 @@ def load_configurations(config_path):
         config["diffusion"]["args"]["guidance"] = "noguidance"
     if "negative-prompt" not in config["diffusion"]["args"]:
         config["diffusion"]["args"]["negative-prompt"] = ""
+    # gamma says how many guidance updates there are, this says where they land
+    if "guidance-schedule" not in config["diffusion"]["args"]:
+        config["diffusion"]["args"]["guidance-schedule"] = "throughout"
 
     # images generated beforehand (e.g. the BigGAN baseline) are loaded instead of being generated
     config["diffusion"]["images-path"] = resolve_images_path(config["diffusion"].get("images-path"))
 
-    # transform certain arguments to list
-    if not isinstance(config["diffusion"]["args"]["guidance"], list):
-        config["diffusion"]["args"]["guidance"] = [config["diffusion"]["args"]["guidance"]]
-    if not isinstance(config["diffusion"]["args"]["alpha"], list):
-        config["diffusion"]["args"]["alpha"] = [config["diffusion"]["args"]["alpha"]]
-    if not isinstance(config["diffusion"]["args"]["guidance-scale"], list):
-        config["diffusion"]["args"]["guidance-scale"] = [config["diffusion"]["args"]["guidance-scale"]]
-    if not isinstance(config["diffusion"]["args"]["guidance-freq"], list):
-        config["diffusion"]["args"]["guidance-freq"] = [config["diffusion"]["args"]["guidance-freq"]]
-    if not isinstance(config["diffusion"]["scheduler"], list):
-        config["diffusion"]["scheduler"] = [config["diffusion"]["scheduler"]]
-
-    # the scheduler drives the x_0 prediction used by the guidance, so only known ones are accepted
-    unknown = [name for name in config["diffusion"]["scheduler"] if name not in SCHEDULERS]
-    if unknown:
-        print(f"Unknown scheduler(s) {unknown}. Valid options are {list(SCHEDULERS)}.")
-        sys.exit(1)
+    config["diffusion"] = prepare_diffusion_grid(config["diffusion"])
 
     # set default values for missing configuration parameters
     config = set_configuration_default_values(config)

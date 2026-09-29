@@ -46,8 +46,8 @@ BIGGAN = "BigGAN"
 # wandb-runs.csv, so it is transcribed from the results table and has to be kept
 # in sync with it by hand. Emptying it drops the series.
 BIGGAN_KLDB = {
-    ("Canines", "ViT-B/16"): 3.58,
-    ("Canines", "ResNet-50"): 3.58,
+    ("Canines", "ViT-B/16"): 4.02,
+    ("Canines", "ResNet-50"): 3.62,
     ("Retrievers", "ViT-B/16"): 1.84,
     ("Retrievers", "ResNet-50"): 2.72,
     ("Felines", "ViT-B/16"): 2.41,

@@ -6,7 +6,7 @@ user-args:
   batch-size: 1
   save-metrics-disk: True
   save-images-disk: True
-  log-plots: False
+  log-plots: True
 
 dataset:
   name: ILSVRC/imagenet-1k
@@ -26,7 +26,7 @@ diffusion:
   scheduler: klms # ddim
   args:
     num-inference-steps: 40
-    prompt-strategy: single # and
+    prompt-strategy: single # single, and
     classes:
       - ruddy turnstone, Arenaria interpres
       - red-backed sandpiper, dunlin, Erolia alpina
@@ -41,6 +41,10 @@ diffusion:
       - 0.05
       - 0.08
       - 0.1
+    guidance-schedule: 
+      - throughout
+      - early
+      - late
     guidance-freq: 5
     # beta
     guidance-scale: 7.5

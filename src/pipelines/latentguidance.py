@@ -7,13 +7,12 @@ tutorial:
  - https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#
 """
 
-from typing import List, Optional, Tuple, Union
-
 import torch
 import wandb
 from diffusers import DDIMScheduler, DiffusionPipeline, ImagePipelineOutput
 
 from src.classifier.metrics import compute_metric
+from src.pipelines.schedules import guidance_steps
 
 
 class LatentClassifierGuidance(DiffusionPipeline):
@@ -219,13 +218,13 @@ class LatentClassifierGuidance(DiffusionPipeline):
     def __call__(
         self,
         batch_size: int = 1,
-        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+        generator: torch.Generator | list[torch.Generator] | None = None,
         num_inference_steps: int = 100,
-        output_type: Optional[str] = "pil",
+        output_type: str | None = "pil",
         return_dict: bool = True,
         log_denoising_images: bool = False,
         **kwargs,
-    ) -> Union[ImagePipelineOutput, Tuple]:
+    ) -> ImagePipelineOutput | tuple:
         """_summary_ Method to guide the diffusion process with a classifier.
 
         Args:
@@ -253,6 +252,7 @@ class LatentClassifierGuidance(DiffusionPipeline):
         alpha = kwargs.get("alpha", 0)
         guidance_type = kwargs.get("guidance_type", None)
         guidance_freq = kwargs.get("guidance_freq", 1)
+        guidance_schedule = kwargs.get("guidance_schedule", "throughout")
 
         # if guidance_scale=1, it means that I don't need to do classifier free guidance
         do_cfg = guidance_scale > 1
@@ -302,6 +302,9 @@ class LatentClassifierGuidance(DiffusionPipeline):
         # set step values
         self.scheduler.set_timesteps(num_inference_steps)
 
+        # the steps that get a guidance update: gamma fixes how many there are, the schedule where
+        guided_steps = guidance_steps(num_inference_steps, guidance_freq, guidance_schedule)
+
         metric = None
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps), start=1):
             # expand the latents to avoid doing two forward passes
@@ -319,8 +322,8 @@ class LatentClassifierGuidance(DiffusionPipeline):
                 if guidance_rescale > 0:
                     noise_prediction = self.rescale_noise_cfg(noise_prediction, noise_pred_text, guidance_rescale)
 
-            # 3. compute classifier guidance (if frequency and alpha value allows)
-            if (guidance_freq != 0) and (i % guidance_freq == 0) and (alpha > 0):
+            # 3. compute classifier guidance (if the schedule and the alpha value allow)
+            if (i in guided_steps) and (alpha > 0):
                 latents, metric = self.guidance_step(
                     latents,
                     t,
